@@ -67,9 +67,59 @@
   .d-del{background:rgba(255,180,171,.10);} .d-del .d-text{color:#ffb4ab;}
   .d-ctx .d-text{color:#c2c6d6;}
   .d-hunk{background:rgba(192,193,255,.08);color:#c0c1ff;padding:2px 8px;border-top:1px solid #424754;border-bottom:1px solid #424754;}
+
+  /* ---- mobile / tablet (CAM-24) ----------------------------------------
+     Everything responsive lives inside this one query, so the desktop layout
+     is byte-for-byte what it was. Below the breakpoint the app stops being a
+     fixed app-shell and becomes an ordinary scrolling document: the sidebar
+     turns into a drawer, the header sticks, the footer flows at the end, and
+     the two panes swap via tabs instead of sitting side by side. */
+  #mobile-tabs{display:none;}
+  #btn-drawer{display:none;}
+  #drawer-backdrop{display:none;}
+  @media (max-width:1023px){
+    body{height:auto;min-height:100vh;display:block;overflow:auto;}
+    #btn-drawer{display:flex;}
+    #sidebar{transform:translateX(-100%);transition:transform .2s ease;width:280px;}
+    body[data-drawer="open"] #sidebar{transform:translateX(0);}
+    body[data-drawer="open"] #drawer-backdrop{display:block;}
+    #main{margin-left:0;height:auto;}
+    #topbar{position:sticky;left:auto;right:auto;top:0;}
+    #workspace{flex-direction:column;margin-top:0;margin-bottom:0;height:auto;overflow:visible;}
+    #connector{display:none;}
+    #mobile-tabs{display:flex;}
+    body[data-pane="editor"] #pane-json{display:none;}
+    body[data-pane="json"] #pane-editor{display:none;}
+    #pane-editor,#pane-json{height:65vh;}
+    #footer{position:static;height:auto;flex-wrap:wrap;row-gap:12px;padding-top:14px;padding-bottom:14px;}
+    #footer-actions{width:100%;}
+    /* DESIGN.md: code drops to 13px on mobile to reclaim horizontal space. */
+    #json-preview,.d-text,.d-num{font-size:13px;}
+    /* The editor's size comes from a generated theme class of equal
+       specificity, so this override cannot rely on source order. */
+    .cm-editor{font-size:13px!important;}
+    #toasts{bottom:1rem;left:1rem;right:1rem;align-items:stretch;}
+  }
+  @media (max-width:640px){
+    #pane-editor,#pane-json{height:60vh;}
+    #endpoint-wrap,#endpoint-help{width:100%;}
+  }
+
+  /* ---- reduced motion (CAM-22) ----------------------------------------
+     Kill movement, keep the state changes it was signalling: colour
+     transitions stay, spinners/pulses/slides/scales stop. */
+  @media (prefers-reduced-motion: reduce){
+    .animate-spin,.animate-pulse{animation:none!important;}
+    .toast{animation:none!important;}
+    #sidebar{transition:none!important;}
+    *:active{transform:none!important;}
+  }
 </style>
 </head>
 <body class="bg-background text-on-surface font-body antialiased h-screen flex overflow-hidden text-[14px]">
+
+<!-- Dimmer behind the sidebar when it is a drawer (below the lg breakpoint). -->
+<div id="drawer-backdrop" class="fixed inset-0 bg-black/50 z-40"></div>
 
 <!-- Sidebar -->
 <nav id="sidebar" aria-label="Saved drafts and navigation"
@@ -104,6 +154,11 @@
       <span class="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">history</span>
       <span class="font-display flex-1">Deploy History</span>
     </button>
+    <button id="btn-shortcuts" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors active:scale-95 duration-150">
+      <span class="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">keyboard</span>
+      <span class="font-display flex-1">Shortcuts</span>
+      <kbd class="font-label text-[11px] border border-outline-variant rounded px-1.5 py-0.5">?</kbd>
+    </button>
     <div class="flex items-center gap-3 px-3 py-2 text-on-surface-variant text-[12px]">
       <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
       <span>Go · SQLite · no CGO</span>
@@ -112,15 +167,19 @@
 </nav>
 
 <!-- Main -->
-<div class="flex-1 ml-[260px] flex flex-col h-full relative">
+<div id="main" class="flex-1 ml-[260px] flex flex-col h-full relative">
   <!-- Top bar -->
-  <header class="bg-surface h-16 fixed top-0 right-0 left-sidebar-width z-40 border-b border-outline-variant flex justify-between items-center px-container-padding">
+  <header id="topbar" class="bg-surface h-16 fixed top-0 right-0 left-sidebar-width z-40 border-b border-outline-variant flex justify-between items-center px-container-padding gap-3">
     <div class="flex items-center gap-4 min-w-0">
-      <span class="font-display text-[22px] font-semibold text-primary shrink-0">Configuration Editor</span>
-      <div class="flex items-center gap-2 min-w-0 border-l border-outline-variant pl-4">
-        <span class="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">edit_document</span>
-        <input id="config-name" placeholder="Untitled Caddyfile"
-          class="bg-transparent border-b border-transparent hover:border-outline-variant focus:border-primary focus:outline-none text-on-surface font-display text-[16px] py-1 min-w-0 w-64 transition-colors" />
+      <button id="btn-drawer" aria-label="Show saved drafts" aria-expanded="false" aria-controls="sidebar"
+        class="items-center text-on-surface-variant hover:text-primary transition-colors shrink-0">
+        <span class="material-symbols-outlined" aria-hidden="true">menu</span>
+      </button>
+      <span class="font-display text-[22px] font-semibold text-primary shrink-0 hidden sm:inline">Configuration Editor</span>
+      <div class="flex items-center gap-2 min-w-0 sm:border-l border-outline-variant sm:pl-4">
+        <span class="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0" aria-hidden="true">edit_document</span>
+        <input id="config-name" placeholder="Untitled Caddyfile" aria-label="Draft name"
+          class="bg-transparent border-b border-transparent hover:border-outline-variant focus:border-primary focus:outline-none text-on-surface font-display text-[16px] py-1 min-w-0 w-40 lg:w-64 transition-colors" />
       </div>
     </div>
     <div class="flex items-center gap-3">
@@ -139,10 +198,18 @@
     </div>
   </header>
 
+  <!-- Pane switcher, shown only when the panes stack. -->
+  <div id="mobile-tabs" class="mt-16 px-container-padding pt-4 gap-2" role="tablist" aria-label="Workspace pane">
+    <button id="tab-editor" role="tab" aria-selected="true" aria-controls="pane-editor"
+      class="flex-1 border border-outline-variant rounded-lg py-2 text-[13px] font-medium transition-colors">Caddyfile</button>
+    <button id="tab-json" role="tab" aria-selected="false" aria-controls="pane-json"
+      class="flex-1 border border-outline-variant rounded-lg py-2 text-[13px] font-medium transition-colors">JSON</button>
+  </div>
+
   <!-- Workspace -->
-  <main class="flex-1 mt-16 p-container-padding flex gap-container-padding overflow-hidden mb-24">
+  <main id="workspace" class="flex-1 mt-16 p-container-padding flex gap-container-padding overflow-hidden mb-24">
     <!-- Editor -->
-    <div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
+    <div id="pane-editor" class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
       <div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
         <span class="font-display font-medium text-on-surface flex items-center gap-2">
           <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">description</span> Caddyfile Editor
@@ -167,11 +234,17 @@
       <div id="editor-host" class="flex-1 overflow-hidden"></div>
     </div>
 
-    <!-- Sync indicator -->
-    <div class="flex flex-col justify-center items-center shrink-0">
-      <div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center border border-outline-variant relative">
-        <span id="sync-icon" class="material-symbols-outlined text-primary text-[18px]">sync_alt</span>
+    <!-- Flow indicator, and the drag handle for the split. One-way flow: the
+         Caddyfile is adapted into JSON, never back. -->
+    <div id="connector" role="separator" aria-orientation="vertical" tabindex="0"
+         aria-label="Resize the editor and JSON panes. Use the arrow keys."
+         title="Drag to resize · double-click to reset · the Caddyfile is adapted into JSON, one way only"
+         class="flex flex-col justify-center items-center shrink-0 cursor-col-resize group focus:outline-none">
+      <div class="w-px flex-1 bg-outline-variant group-hover:bg-primary group-focus:bg-primary transition-colors"></div>
+      <div class="w-8 h-8 my-2 rounded-full bg-surface-container-high flex items-center justify-center border border-outline-variant group-hover:border-primary group-focus:border-primary transition-colors">
+        <span id="sync-icon" class="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">arrow_forward</span>
       </div>
+      <div class="w-px flex-1 bg-outline-variant group-hover:bg-primary group-focus:bg-primary transition-colors"></div>
     </div>
 
     <!-- JSON pane -->
@@ -229,8 +302,8 @@
     </div>
   </main>
 
-  <!-- Footer / submit -->
-  <div class="h-24 bg-surface-container border-t border-outline-variant fixed bottom-0 right-0 left-sidebar-width flex items-center px-container-padding justify-between z-30 gap-6">
+  <!-- Footer / apply -->
+  <div id="footer" class="h-24 bg-surface-container border-t border-outline-variant fixed bottom-0 right-0 left-sidebar-width flex items-center px-container-padding justify-between z-30 gap-6">
     <div class="flex items-end gap-6 flex-1 min-w-0">
       <div id="endpoint-wrap" class="flex flex-col min-w-0">
         <div class="flex items-center gap-3">

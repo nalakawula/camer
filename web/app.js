@@ -726,6 +726,7 @@ async function selectConfig(id) {
   try {
     const c = await api("GET", `/api/configs/${id}`);
     loadIntoEditor(c.id, c.name, c.content);
+    setDrawer(false);
     scheduleAdapt(true);
   } catch (e) {
     toast("Failed to open config: " + e.message, "error");
@@ -1612,9 +1613,191 @@ async function openLastApplied() {
   }
 }
 
+// ---- keyboard shortcuts ----
+// Ctrl+S was previously documented only in the README, and the primary action
+// had no shortcut at all.
+const SHORTCUTS = [
+  ["Ctrl / ⌘ + S", "Save the current draft"],
+  ["Ctrl / ⌘ + Enter", "Open the apply confirmation"],
+  ["Tab", "Jump to the next placeholder in an inserted pattern"],
+  ["Enter  ·  {", "Auto-indent a new block · auto-close the brace"],
+  ["Enter / Shift + Enter", "Next / previous match, while the JSON find box has focus"],
+  ["← →", "Resize the split, when the divider has focus"],
+  ["Esc", "Close a dialog, the pattern menu, or the drawer"],
+  ["?", "Show this list"],
+];
+
+function renderShortcuts() {
+  $("shortcuts-list").innerHTML = SHORTCUTS.map(([keys, what]) =>
+    `<dt class="font-label text-[11px] text-primary whitespace-nowrap">${escapeHTML(keys)}</dt>` +
+    `<dd class="text-on-surface-variant">${escapeHTML(what)}</dd>`
+  ).join("");
+}
+
+function openShortcuts() {
+  openDialog($("shortcuts-modal"), { onCancel: closeShortcuts, initialFocus: $("shortcuts-close") });
+}
+function closeShortcuts() { closeDialog($("shortcuts-modal")); }
+
+// typingInto reports whether keystrokes belong to a field rather than the app, so
+// bare-key shortcuts like "?" never eat a character the user meant to type.
+function typingInto(target) {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return true;
+  return !!target.closest(".cm-editor");
+}
+
+// ---- resizable split ----
+// Only meaningful on the wide layout; below the breakpoint the panes stack and
+// take turns, so the handle is hidden and this does nothing.
+const SPLIT_MIN = 20;
+const SPLIT_MAX = 80;
+
+function wideLayout() {
+  return window.matchMedia("(min-width: 1024px)").matches;
+}
+
+function applySplit(pct) {
+  const clamped = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct));
+  // The inline basis must be cleared on the stacked layout: #workspace becomes
+  // flex-direction:column there, where flex-basis sizes HEIGHT — so leaving a
+  // width fraction behind would squash the panes vertically.
+  $("pane-editor").style.flex = wideLayout() ? `0 0 calc(${clamped}% - 1.5rem)` : "";
+  $("connector").setAttribute("aria-valuenow", String(Math.round(clamped)));
+  localStorage.setItem("camer.split", String(clamped));
+  editor.refresh();
+  return clamped;
+}
+
+function loadSplit() {
+  applySplit(currentSplit());
+}
+
+function currentSplit() {
+  const saved = parseFloat(localStorage.getItem("camer.split"));
+  return isNaN(saved) ? 50 : saved;
+}
+
+function initSplitter() {
+  const handle = $("connector");
+  handle.setAttribute("aria-valuemin", String(SPLIT_MIN));
+  handle.setAttribute("aria-valuemax", String(SPLIT_MAX));
+
+  let dragging = false;
+  const move = (e) => {
+    if (!dragging) return;
+    const box = $("workspace").getBoundingClientRect();
+    applySplit(((e.clientX - box.left) / box.width) * 100);
+    e.preventDefault();
+  };
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  };
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!wideLayout()) return;
+    dragging = true;
+    // Without this, dragging selects text across both panes.
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", stop);
+
+  // Crossing the breakpoint has to re-evaluate the inline basis in both
+  // directions: restore it on the way to wide, clear it on the way to stacked.
+  window.matchMedia("(min-width: 1024px)").addEventListener("change", () => {
+    applySplit(currentSplit());
+    setPane(document.body.dataset.pane || "editor");
+  });
+
+  handle.addEventListener("dblclick", () => { if (wideLayout()) applySplit(50); });
+  handle.addEventListener("keydown", (e) => {
+    if (!wideLayout()) return;
+    const step = e.shiftKey ? 10 : 2;
+    if (e.key === "ArrowLeft") { applySplit(currentSplit() - step); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { applySplit(currentSplit() + step); e.preventDefault(); }
+    else if (e.key === "Home") { applySplit(50); e.preventDefault(); }
+  });
+}
+
+// ---- JSON tools wiring ----
+function initJSONTools() {
+  const find = $("json-find");
+  let findTimer = null;
+  find.addEventListener("input", () => {
+    clearTimeout(findTimer);
+    findTimer = setTimeout(() => runJSONFind(find.value.trim()), 150);
+  });
+  find.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (jsonView.hits.length) gotoHit(jsonView.hitIndex + (e.shiftKey ? -1 : 1));
+  });
+  $("json-find-next").addEventListener("click", () => gotoHit(jsonView.hitIndex + 1));
+  $("json-find-prev").addEventListener("click", () => gotoHit(jsonView.hitIndex - 1));
+
+  $("json-collapse").addEventListener("click", () => {
+    jsonView.folded = new Set(jsonView.closeOf.flatMap((c, i) => (c > i ? [i] : [])));
+    applyFolds();
+  });
+  $("json-expand").addEventListener("click", () => { jsonView.folded.clear(); applyFolds(); });
+
+  $("json-wrap").addEventListener("click", () => {
+    const on = $("json-preview").classList.toggle("wrap");
+    $("json-wrap").setAttribute("aria-pressed", on ? "true" : "false");
+    $("json-wrap").classList.toggle("text-primary", on);
+    localStorage.setItem("camer.wrap", on ? "1" : "0");
+  });
+  if (localStorage.getItem("camer.wrap") === "1") $("json-wrap").click();
+
+  // One delegated listener rather than one per line.
+  $("json-preview").addEventListener("click", (e) => {
+    const fold = e.target.closest(".jl-fold, .jl-ellipsis");
+    if (!fold) return;
+    const row = fold.closest(".jl");
+    if (row) toggleFold(Number(row.dataset.i));
+  });
+}
+
+// ---- responsive shell (drawer + pane tabs) ----
+// Below the lg breakpoint the sidebar is a drawer and the two panes take turns;
+// all of the styling for that lives in one media query in index.html, so this is
+// only the state it needs.
+function setDrawer(open) {
+  document.body.dataset.drawer = open ? "open" : "closed";
+  $("btn-drawer").setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function setPane(which) {
+  document.body.dataset.pane = which;
+  for (const [id, name] of [["tab-editor", "editor"], ["tab-json", "json"]]) {
+    const on = name === which;
+    $(id).setAttribute("aria-selected", on ? "true" : "false");
+    $(id).className = "flex-1 border rounded-lg py-2 text-[13px] font-medium transition-colors " +
+      (on ? "border-primary text-primary bg-primary/10"
+          : "border-outline-variant text-on-surface-variant hover:text-on-surface");
+  }
+  // CodeMirror measures nothing while display:none, so it comes back blank
+  // without this.
+  if (which === "editor") editor.refresh();
+}
+
 // ---- wiring ----
-editor.on("change", () => { refreshDirty(); scheduleAdapt(false); });
-$("config-name").addEventListener("input", refreshDirty);
+editor.onChange(() => { clearApplyFailure(); refreshState(); scheduleAdapt(false); });
+$("config-name").addEventListener("input", () => { clearApplyFailure(); refreshState(); });
+$("btn-drawer").addEventListener("click", () => setDrawer(document.body.dataset.drawer !== "open"));
+$("drawer-backdrop").addEventListener("click", () => setDrawer(false));
+$("tab-editor").addEventListener("click", () => setPane("editor"));
+$("tab-json").addEventListener("click", () => setPane("json"));
+$("config-filter").addEventListener("input", renderConfigList);
+$("btn-history-more").addEventListener("click", () => loadHistory(true));
+for (const m of PREVIEW_MODES) $("mode-" + m).addEventListener("click", () => setPreviewMode(m));
 $("btn-new").addEventListener("click", newConfig);
 $("btn-save").addEventListener("click", saveConfig);
 $("btn-delete").addEventListener("click", deleteConfig);
@@ -1624,6 +1807,9 @@ $("btn-copy").addEventListener("click", copyJSON);
 $("btn-refresh-list").addEventListener("click", loadConfigList);
 $("btn-history").addEventListener("click", openHistory);
 $("btn-history-close").addEventListener("click", closeHistory);
+$("btn-shortcuts").addEventListener("click", openShortcuts);
+$("shortcuts-close").addEventListener("click", closeShortcuts);
+$("shortcuts-modal").addEventListener("click", (e) => { if (e.target === $("shortcuts-modal")) closeShortcuts(); });
 $("history-modal").addEventListener("click", (e) => { if (e.target === $("history-modal")) closeHistory(); });
 $("btn-patterns").addEventListener("click", (e) => { e.stopPropagation(); togglePatterns(); });
 // Close the patterns menu on outside click or Escape.
@@ -1635,12 +1821,32 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  // A dialog on the stack owns Escape, so dismissing the apply confirmation does
+  // not also close whatever is behind it.
+  const top = topDialog();
+  if (top) {
+    e.stopPropagation();
+    if (top.onCancel) top.onCancel();
+    else closeDialog(top.el);
+    return;
+  }
+  // The history modal is a stacked dialog now, so it was handled above.
   closePatterns();
-  closeHistory();
+  setDrawer(false);
 });
 
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveConfig(); }
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key.toLowerCase() === "s") { e.preventDefault(); saveConfig(); }
+    // Enter reaches the confirmation, never the server directly.
+    else if (e.key === "Enter" && !topDialog()) { e.preventDefault(); applyConfig(); }
+    return;
+  }
+  // Bare "?" only when it is not part of something being typed.
+  if (e.key === "?" && !typingInto(e.target) && !topDialog()) {
+    e.preventDefault();
+    openShortcuts();
+  }
 });
 window.addEventListener("beforeunload", (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ""; } });
 
@@ -1648,6 +1854,14 @@ window.addEventListener("beforeunload", (e) => { if (isDirty()) { e.preventDefau
 (async function boot() {
   loadEndpoint();
   renderPatterns();
+  renderShortcuts();
+  initSplitter();
+  initJSONTools();
+  loadSplit();
+  setDrawer(false);
+  setPane("editor");
+  setPreviewMode("adapted");
+  probeEndpoint(); // not awaited: reachability must not delay first paint
   await loadConfigList();
   // Start from the configuration that is live, not from a sample.
   await openLastApplied();
