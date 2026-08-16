@@ -59,6 +59,14 @@
   ::-webkit-scrollbar-thumb:hover{background:#424754;}
   @keyframes toastin{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
   .toast{animation:toastin .18s ease-out;}
+  /* diff view */
+  .d-row{display:flex;}
+  .d-num{width:44px;flex:none;text-align:right;padding-right:10px;color:#8c909f;user-select:none;opacity:.7;}
+  .d-text{flex:1;white-space:pre-wrap;word-break:break-word;padding-left:8px;}
+  .d-add{background:rgba(143,217,143,.10);} .d-add .d-text{color:#8fd98f;}
+  .d-del{background:rgba(255,180,171,.10);} .d-del .d-text{color:#ffb4ab;}
+  .d-ctx .d-text{color:#c2c6d6;}
+  .d-hunk{background:rgba(192,193,255,.08);color:#c0c1ff;padding:2px 8px;border-top:1px solid #424754;border-bottom:1px solid #424754;}
 </style>
 </head>
 <body class="bg-background text-on-surface font-body antialiased h-screen flex overflow-hidden text-[14px]">
@@ -88,6 +96,10 @@
   <div id="config-list" class="flex flex-col gap-1 flex-1 overflow-y-auto -mx-1 px-1"></div>
 
   <div class="flex flex-col gap-1 mt-auto pt-4 border-t border-outline-variant">
+    <button id="btn-history" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors active:scale-95 duration-150">
+      <span class="material-symbols-outlined text-[18px] shrink-0">history</span>
+      <span class="font-display flex-1">Deploy History</span>
+    </button>
     <div class="flex items-center gap-3 px-3 py-2 text-on-surface-variant text-[12px]">
       <span class="material-symbols-outlined text-[18px]">bolt</span>
       <span>Go · SQLite · no CGO</span>
@@ -196,6 +208,25 @@
       <button id="btn-submit" class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2.5 px-6 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 shadow-[0_4px_14px_0_rgba(173,198,255,0.15)] disabled:opacity-50 disabled:cursor-not-allowed">
         <span class="material-symbols-outlined">send</span> Submit to Admin API
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- Deploy history (audit) -->
+<div id="history-modal" class="hidden fixed inset-0 z-[80] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-8">
+  <div class="bg-surface-container border border-outline-variant rounded-xl w-full max-w-6xl h-[82vh] flex flex-col overflow-hidden shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]">
+    <div class="bg-surface-container-high px-4 py-3 border-b border-outline-variant flex justify-between items-center shrink-0">
+      <span class="font-display font-medium text-on-surface flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px] text-primary">history</span> Deploy History
+        <span class="text-on-surface-variant text-[12px] font-body">every submit to the admin API, newest first</span>
+      </span>
+      <button id="btn-history-close" title="Close" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+        <span class="material-symbols-outlined text-[20px]">close</span>
+      </button>
+    </div>
+    <div class="flex-1 flex min-h-0">
+      <div id="history-list" class="w-80 shrink-0 border-r border-outline-variant overflow-y-auto p-2 flex flex-col gap-1"></div>
+      <div id="history-detail" class="flex-1 overflow-auto bg-surface-container-lowest min-w-0"></div>
     </div>
   </div>
 </div>

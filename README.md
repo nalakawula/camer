@@ -15,6 +15,13 @@ config to a running Caddy via its admin API.
 - **Save drafts** to SQLite and reopen them from the sidebar.
 - **Submit to Admin API** — applies the Caddyfile to the running server via
   `/load`. Every apply is recorded in a `deploys` audit table.
+- **Opens where you left off** — on load the editor starts from the last
+  successfully applied Caddyfile (its saved draft when one still exists, with a
+  notice if that draft has drifted from what is actually running), not a sample.
+- **Deploy History** — an audit trail of every submit: who/what/when, the
+  endpoint, success or the Caddy error, and a line **diff against the
+  configuration it replaced** (the previous successful apply). Any past deploy
+  can be loaded back into the editor.
 - **Pull Current** — load the running config's JSON into the preview.
 - `Ctrl/Cmd+S` to save. Unsaved-changes guard on navigation.
 
@@ -53,3 +60,6 @@ and submit.
 | POST   | `/api/adapt`         | adapt `{caddyfile, endpoint}` → JSON       |
 | POST   | `/api/load`          | apply `{caddyfile, endpoint, config_id?}`  |
 | POST   | `/api/current`       | pull running config `{endpoint}` → JSON    |
+| GET    | `/api/deploys`       | deploy history, newest first (`?limit=`)   |
+| GET    | `/api/deploys/latest`| last **successful** deploy + source config |
+| GET    | `/api/deploys/{id}`  | one deploy + diff vs the config it replaced|

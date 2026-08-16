@@ -26,6 +26,10 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 	mux.HandleFunc("PUT /api/configs/{id}", s.handleUpdateConfig)
 	mux.HandleFunc("DELETE /api/configs/{id}", s.handleDeleteConfig)
 
+	mux.HandleFunc("GET /api/deploys", s.handleListDeploys)
+	mux.HandleFunc("GET /api/deploys/latest", s.handleLatestDeploy)
+	mux.HandleFunc("GET /api/deploys/{id}", s.handleGetDeploy)
+
 	mux.HandleFunc("POST /api/adapt", s.handleAdapt)
 	mux.HandleFunc("POST /api/load", s.handleLoad)
 	mux.HandleFunc("POST /api/current", s.handleCurrent)
@@ -127,6 +131,74 @@ func (s *Server) handleDeleteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- deploy history (audit) ----
+
+func (s *Server) handleListDeploys(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	deploys, err := s.store.ListDeploys(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, deploys)
+}
+
+// handleLatestDeploy returns the most recent successful deploy — what the UI
+// opens with so the editor starts from the configuration that is live.
+func (s *Server) handleLatestDeploy(w http.ResponseWriter, r *http.Request) {
+	d, err := s.store.LatestAppliedDeploy(r.Context())
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no config has been applied yet")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := map[string]any{"deploy": d}
+	// Tell the UI whether the source draft still matches what was applied.
+	if d.ConfigID != nil {
+		if c, err := s.store.Get(r.Context(), *d.ConfigID); err == nil {
+			out["config"] = c
+			out["drifted"] = c.Content != d.Content
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleGetDeploy returns one deploy along with a line diff against the
+// configuration it replaced (the previous successful deploy).
+func (s *Server) handleGetDeploy(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	d, err := s.store.GetDeploy(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "deploy not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	out := map[string]any{"deploy": d, "base": nil}
+	baseContent := ""
+	prev, err := s.store.PreviousAppliedDeploy(r.Context(), d.ID)
+	switch {
+	case err == nil:
+		baseContent = prev.Content
+		prev.Content = "" // the diff carries the relevant lines
+		out["base"] = prev
+	case !errors.Is(err, ErrNotFound):
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out["diff"] = DiffText(baseContent, d.Content)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ---- Caddy admin proxy ----

@@ -30,7 +30,11 @@ const api = async (method, path, body) => {
   let data = null;
   const text = await res.text();
   if (text) { try { data = JSON.parse(text); } catch { data = { error: text }; } }
-  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 };
 
@@ -50,6 +54,24 @@ function toast(message, kind = "info") {
 
 function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---- time formatting ----
+function absTime(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? String(iso) : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function relTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  let s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (s < 60) return "just now";
+  for (const [unit, secs] of [["minute", 60], ["hour", 3600], ["day", 86400], ["month", 2592000]]) {
+    const next = secs * (unit === "minute" ? 60 : unit === "hour" ? 24 : unit === "day" ? 30 : 12);
+    if (s < next) { const n = Math.floor(s / secs); return `${n} ${unit}${n === 1 ? "" : "s"} ago`; }
+  }
+  return absTime(iso);
 }
 
 // ---- JSON syntax highlighting for the preview pane ----
@@ -140,18 +162,24 @@ function renderConfigList() {
   }
 }
 
+// loadIntoEditor replaces the editor contents and resets the dirty baseline.
+// Pass id = null for content that is not (yet) backed by a saved config.
+function loadIntoEditor(id, name, content) {
+  state.currentId = id;
+  state.savedContent = content;
+  state.savedName = name;
+  $("config-name").value = name;
+  editor.setValue(content);
+  editor.clearHistory();
+  refreshDirty();
+  renderConfigList();
+}
+
 async function selectConfig(id) {
   if (isDirty() && !confirm("Discard unsaved changes?")) return;
   try {
     const c = await api("GET", `/api/configs/${id}`);
-    state.currentId = c.id;
-    state.savedContent = c.content;
-    state.savedName = c.name;
-    $("config-name").value = c.name;
-    editor.setValue(c.content);
-    editor.clearHistory();
-    refreshDirty();
-    renderConfigList();
+    loadIntoEditor(c.id, c.name, c.content);
     scheduleAdapt(true);
   } catch (e) {
     toast("Failed to open config: " + e.message, "error");
@@ -160,14 +188,7 @@ async function selectConfig(id) {
 
 function newConfig() {
   if (isDirty() && !confirm("Discard unsaved changes?")) return;
-  state.currentId = null;
-  state.savedContent = "";
-  state.savedName = "";
-  $("config-name").value = "";
-  editor.setValue(STARTER);
-  editor.clearHistory();
-  refreshDirty();
-  renderConfigList();
+  loadIntoEditor(null, "", STARTER);
   scheduleAdapt(true);
   editor.focus();
 }
@@ -357,6 +378,166 @@ async function copyJSON() {
   catch { toast("Clipboard blocked by browser.", "error"); }
 }
 
+// ---- deploy history (audit) ----
+const hist = { deploys: [], selected: null };
+
+function openHistory() {
+  $("history-modal").classList.remove("hidden");
+  loadHistory();
+}
+
+function closeHistory() { $("history-modal").classList.add("hidden"); }
+
+async function loadHistory() {
+  const list = $("history-list");
+  list.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">Loading…</div>`;
+  try {
+    hist.deploys = await api("GET", "/api/deploys?limit=100");
+  } catch (e) {
+    list.innerHTML = `<div class="text-error text-[13px] px-3 py-4 text-center">${escapeHTML(e.message)}</div>`;
+    return;
+  }
+  renderHistoryList();
+  if (hist.deploys.length) selectDeploy(hist.deploys[0].id);
+  else $("history-detail").innerHTML = `<div class="text-on-surface-variant text-[13px] p-8 text-center">Nothing has been submitted to the admin API yet.</div>`;
+}
+
+function renderHistoryList() {
+  const list = $("history-list");
+  list.innerHTML = "";
+  if (hist.deploys.length === 0) {
+    list.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">No deploys recorded.</div>`;
+    return;
+  }
+  for (const d of hist.deploys) {
+    const active = d.id === hist.selected;
+    const btn = document.createElement("button");
+    btn.className = `w-full text-left px-3 py-2 rounded-lg transition-colors ${
+      active ? "bg-secondary-container text-on-secondary-container" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
+    }`;
+    btn.innerHTML = `<div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px] shrink-0 ${d.ok ? "text-success" : "text-error"}">${d.ok ? "check_circle" : "error"}</span>
+        <span class="font-display truncate flex-1">${escapeHTML(d.config_name || "Unsaved draft")}</span>
+        <span class="font-label text-[11px] opacity-60 shrink-0">#${d.id}</span>
+      </div>
+      <div class="text-[12px] pl-6 opacity-70 truncate">${escapeHTML(absTime(d.created_at))}</div>`;
+    btn.addEventListener("click", () => selectDeploy(d.id));
+    list.appendChild(btn);
+  }
+}
+
+async function selectDeploy(id) {
+  hist.selected = id;
+  renderHistoryList();
+  $("history-detail").innerHTML = `<div class="text-on-surface-variant text-[13px] p-8 text-center">Loading diff…</div>`;
+  try {
+    renderDeployDetail(await api("GET", `/api/deploys/${id}`));
+  } catch (e) {
+    $("history-detail").innerHTML = `<div class="text-error text-[13px] p-8 text-center">${escapeHTML(e.message)}</div>`;
+  }
+}
+
+function renderDeployDetail(res) {
+  const { deploy: d, base, diff } = res;
+  const box = $("history-detail");
+
+  const chip = d.ok
+    ? `<span class="font-label text-[11px] text-success border border-success/50 rounded px-2 py-0.5">APPLIED</span>`
+    : `<span class="font-label text-[11px] text-error border border-error/50 rounded px-2 py-0.5">FAILED</span>`;
+
+  const against = base
+    ? `Diff against deploy <b>#${base.id}</b> — ${escapeHTML(absTime(base.created_at))} (${escapeHTML(relTime(base.created_at))})`
+    : `No earlier applied config — this is the first configuration Camer applied.`;
+
+  const stats = diff.identical
+    ? `<span class="text-on-surface-variant">identical to the previous applied config</span>`
+    : `<span class="text-success">+${diff.added}</span> <span class="text-error">−${diff.removed}</span>` +
+      (diff.truncated ? ` <span class="text-on-surface-variant">(too large to diff precisely — shown as a full replacement)</span>` : "");
+
+  box.innerHTML = `
+    <div class="p-4 border-b border-outline-variant bg-surface-container sticky top-0 z-10">
+      <div class="flex items-center gap-3 flex-wrap">
+        ${chip}
+        <span class="font-display text-[16px] text-on-surface">${escapeHTML(d.config_name || "Unsaved draft")}</span>
+        <span class="font-label text-[12px] text-on-surface-variant">#${d.id}</span>
+        <span class="text-[13px] text-on-surface-variant">${escapeHTML(absTime(d.created_at))} · ${escapeHTML(relTime(d.created_at))}</span>
+        <button id="btn-restore" class="ml-auto border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-3 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 text-[13px]">
+          <span class="material-symbols-outlined text-[16px]">restore</span> Load into editor
+        </button>
+      </div>
+      <div class="text-[12px] text-on-surface-variant font-code mt-2 break-all">${escapeHTML(d.endpoint || "http://localhost:2019")}</div>
+      <div class="text-[13px] mt-1 ${d.ok ? "text-on-surface-variant" : "text-error"} whitespace-pre-wrap break-words">${escapeHTML(d.message)}</div>
+      <div class="text-[13px] mt-3 pt-3 border-t border-outline-variant flex items-center gap-3 flex-wrap">
+        <span class="text-on-surface-variant">${against}</span>
+        <span class="font-code">${stats}</span>
+      </div>
+    </div>
+    <div id="diff-body" class="font-code text-[13px] leading-[1.6] py-2"></div>`;
+
+  $("btn-restore").addEventListener("click", () => restoreDeploy(d));
+  renderDiff(diff);
+}
+
+function renderDiff(diff) {
+  const body = $("diff-body");
+  if (diff.identical) {
+    body.innerHTML = `<div class="text-on-surface-variant text-[13px] font-body p-8 text-center">No changes — this submit re-applied the same Caddyfile.</div>`;
+    return;
+  }
+  const rows = [];
+  for (const h of diff.hunks) {
+    rows.push(`<div class="d-hunk">@@ -${h.old_start || 0},${h.old_lines} +${h.new_start || 0},${h.new_lines} @@</div>`);
+    for (const l of h.lines) {
+      const cls = l.op === "+" ? "d-add" : l.op === "-" ? "d-del" : "d-ctx";
+      rows.push(`<div class="d-row ${cls}"><span class="d-num">${l.old || ""}</span><span class="d-num">${l.new || ""}</span><span class="d-text">${escapeHTML(l.op + l.text)}</span></div>`);
+    }
+  }
+  body.innerHTML = rows.join("");
+}
+
+// restoreDeploy puts a historical Caddyfile back in the editor. It stays
+// attached to its source config when that config still exists, so saving
+// updates the same draft rather than creating a stray copy.
+function restoreDeploy(d) {
+  if (isDirty() && !confirm("Discard unsaved changes?")) return;
+  const cfg = d.config_id ? state.configs.find((c) => c.id === d.config_id) : null;
+  loadIntoEditor(cfg ? cfg.id : null, cfg ? cfg.name : "", cfg ? cfg.content : "");
+  if (!cfg) $("config-name").value = d.config_name || "";
+  editor.setValue(d.content);
+  refreshDirty();
+  closeHistory();
+  scheduleAdapt(true);
+  toast(`Loaded deploy #${d.id} into the editor.`, "success");
+}
+
+// ---- boot: start from what is actually running ----
+async function openLastApplied() {
+  let res;
+  try {
+    res = await api("GET", "/api/deploys/latest");
+  } catch (e) {
+    if (e.status !== 404) toast("Could not load the last applied config: " + e.message, "error");
+    loadIntoEditor(null, "", STARTER);
+    return;
+  }
+  const d = res.deploy;
+  // Only adopt the recorded endpoint when the browser has no preference.
+  if (!localStorage.getItem("camer.endpoint") && d.endpoint) $("endpoint").value = d.endpoint;
+
+  if (res.config) {
+    loadIntoEditor(res.config.id, res.config.name, res.config.content);
+    if (res.drifted) {
+      toast(`Opened “${res.config.name}”. Its saved draft differs from what was applied ${relTime(d.created_at)} — see Deploy History.`, "info");
+    } else {
+      toast(`Opened “${res.config.name}” — applied ${relTime(d.created_at)}.`, "info");
+    }
+  } else {
+    // The deploy came from an unsaved draft, or its config was since deleted.
+    loadIntoEditor(null, "", d.content);
+    toast(`Loaded the Caddyfile applied ${relTime(d.created_at)} (no saved draft).`, "info");
+  }
+}
+
 // ---- wiring ----
 editor.on("change", () => { refreshDirty(); scheduleAdapt(false); });
 $("config-name").addEventListener("input", refreshDirty);
@@ -367,6 +548,9 @@ $("btn-submit").addEventListener("click", submitToCaddy);
 $("btn-fetch").addEventListener("click", pullCurrent);
 $("btn-copy").addEventListener("click", copyJSON);
 $("btn-refresh-list").addEventListener("click", loadConfigList);
+$("btn-history").addEventListener("click", openHistory);
+$("btn-history-close").addEventListener("click", closeHistory);
+$("history-modal").addEventListener("click", (e) => { if (e.target === $("history-modal")) closeHistory(); });
 $("btn-patterns").addEventListener("click", (e) => { e.stopPropagation(); togglePatterns(); });
 // Close the patterns menu on outside click or Escape.
 document.addEventListener("click", (e) => {
@@ -375,7 +559,11 @@ document.addEventListener("click", (e) => {
     closePatterns();
   }
 });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePatterns(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  closePatterns();
+  closeHistory();
+});
 
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveConfig(); }
@@ -383,9 +571,11 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("beforeunload", (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ""; } });
 
 // ---- boot ----
-loadEndpoint();
-renderPatterns();
-editor.setValue(STARTER);
-editor.clearHistory();
-loadConfigList();
-scheduleAdapt(true);
+(async function boot() {
+  loadEndpoint();
+  renderPatterns();
+  await loadConfigList();
+  // Start from the configuration that is live, not from a sample.
+  await openLastApplied();
+  scheduleAdapt(true);
+})();
