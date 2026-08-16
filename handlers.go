@@ -192,14 +192,27 @@ func (s *Server) handleDeleteConfig(w http.ResponseWriter, r *http.Request) {
 
 // ---- deploy history (audit) ----
 
+// handleListDeploys returns a page of history plus the total, so the UI can
+// show "N of M" rather than silently cutting the list off at the limit.
 func (s *Server) handleListDeploys(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	deploys, err := s.store.ListDeploys(r.Context(), limit)
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	deploys, err := s.store.ListDeploys(r.Context(), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, deploys)
+	total, err := s.store.CountDeploys(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deploys": deploys,
+		"total":   total,
+		"offset":  offset,
+	})
 }
 
 // handleLatestDeploy returns the most recent successful deploy — what the UI

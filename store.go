@@ -190,14 +190,17 @@ func scanDeploy(sc interface{ Scan(...any) error }, withContent bool) (Deploy, e
 	return d, nil
 }
 
-// ListDeploys returns the most recent deploy attempts, newest first, without
-// their content.
-func (s *Store) ListDeploys(ctx context.Context, limit int) ([]Deploy, error) {
+// ListDeploys returns a page of deploy attempts, newest first, without their
+// content.
+func (s *Store) ListDeploys(ctx context.Context, limit, offset int) ([]Deploy, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	if offset < 0 {
+		offset = 0
+	}
 	rows, err := s.db.QueryContext(ctx,
-		fmt.Sprintf(deploySelect, `''`)+` ORDER BY d.id DESC LIMIT ?`, limit)
+		fmt.Sprintf(deploySelect, `''`)+` ORDER BY d.id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +215,14 @@ func (s *Store) ListDeploys(ctx context.Context, limit int) ([]Deploy, error) {
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// CountDeploys returns how many deploys exist, so the UI can say how much of
+// the history it is showing instead of silently truncating.
+func (s *Store) CountDeploys(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM deploys`).Scan(&n)
+	return n, err
 }
 
 // GetDeploy returns one deploy including the Caddyfile that was submitted.
