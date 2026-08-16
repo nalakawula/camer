@@ -59,7 +59,9 @@
   .toast{animation:toastin .18s ease-out;}
   /* diff view */
   .d-row{display:flex;}
-  .d-num{width:44px;flex:none;text-align:right;padding-right:10px;color:#8c909f;user-select:none;opacity:.7;}
+  /* No opacity here: #8c909f is 6.1:1 on #060e20, but at .7 it dropped to 3.6:1,
+     under AA. Contrast is set by colour choice, not by layering transparency. */
+  .d-num{width:44px;flex:none;text-align:right;padding-right:10px;color:#8c909f;user-select:none;}
   .d-text{flex:1;white-space:pre-wrap;word-break:break-word;padding-left:8px;}
   .d-add{background:rgba(143,217,143,.10);} .d-add .d-text{color:#8fd98f;}
   .d-del{background:rgba(255,180,171,.10);} .d-del .d-text{color:#ffb4ab;}
@@ -70,10 +72,11 @@
 <body class="bg-background text-on-surface font-body antialiased h-screen flex overflow-hidden text-[14px]">
 
 <!-- Sidebar -->
-<nav class="bg-surface-container-low w-sidebar-width h-full fixed left-0 top-0 border-r border-outline-variant flex flex-col p-gutter z-50">
+<nav id="sidebar" aria-label="Saved drafts and navigation"
+     class="bg-surface-container-low w-sidebar-width h-full fixed left-0 top-0 border-r border-outline-variant flex flex-col p-gutter z-50">
   <div class="flex items-center gap-3 mb-8">
     <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center shrink-0">
-      <span class="material-symbols-outlined text-on-primary-container">dns</span>
+      <span class="material-symbols-outlined text-on-primary-container" aria-hidden="true">dns</span>
     </div>
     <div class="flex flex-col">
       <span class="font-display text-[18px] font-bold text-on-surface leading-tight">Camer</span>
@@ -82,7 +85,7 @@
   </div>
 
   <button id="btn-new" class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2 px-4 rounded-lg mb-6 flex items-center justify-center gap-2 transition-colors w-full active:scale-95 duration-150">
-    <span class="material-symbols-outlined text-[18px]">add</span> New Caddyfile
+    <span class="material-symbols-outlined text-[18px]" aria-hidden="true">add</span> New Caddyfile
   </button>
 
   <div class="flex items-center justify-between px-1 mb-2">
@@ -98,11 +101,11 @@
 
   <div class="flex flex-col gap-1 mt-auto pt-4 border-t border-outline-variant">
     <button id="btn-history" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors active:scale-95 duration-150">
-      <span class="material-symbols-outlined text-[18px] shrink-0">history</span>
+      <span class="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">history</span>
       <span class="font-display flex-1">Deploy History</span>
     </button>
     <div class="flex items-center gap-3 px-3 py-2 text-on-surface-variant text-[12px]">
-      <span class="material-symbols-outlined text-[18px]">bolt</span>
+      <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
       <span>Go · SQLite · no CGO</span>
     </div>
   </div>
@@ -142,13 +145,14 @@
     <div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
       <div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
         <span class="font-display font-medium text-on-surface flex items-center gap-2">
-          <span class="material-symbols-outlined text-[16px] text-primary">description</span> Caddyfile Editor
+          <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">description</span> Caddyfile Editor
         </span>
         <div class="flex items-center gap-3">
           <div class="relative">
-            <button id="btn-patterns" class="flex items-center gap-1.5 text-on-surface-variant hover:text-primary border border-outline-variant hover:border-primary rounded-lg px-2.5 py-1 transition-colors text-[13px]">
-              <span class="material-symbols-outlined text-[16px]">library_add</span> Patterns
-              <span class="material-symbols-outlined text-[16px]">expand_more</span>
+            <button id="btn-patterns" aria-haspopup="menu" aria-expanded="false" aria-controls="patterns-menu"
+              class="flex items-center gap-1.5 text-on-surface-variant hover:text-primary border border-outline-variant hover:border-primary rounded-lg px-2.5 py-1 transition-colors text-[13px]">
+              <span class="material-symbols-outlined text-[16px]" aria-hidden="true">library_add</span> Patterns
+              <span class="material-symbols-outlined text-[16px]" aria-hidden="true">expand_more</span>
             </button>
             <div id="patterns-menu" class="hidden absolute right-0 top-full mt-2 w-80 max-h-[65vh] overflow-y-auto bg-surface-container-highest border border-outline-variant rounded-xl shadow-[0_10px_25px_-5px_rgba(0,0,0,0.5)] z-50 p-1">
               <div class="px-3 py-2 border-b border-outline-variant mb-1">
@@ -185,8 +189,8 @@
         </div>
         <div class="flex items-center gap-3">
           <span id="preview-status" class="font-label text-[12px] text-on-surface-variant"></span>
-          <button id="btn-copy" title="Copy JSON" class="text-on-surface-variant hover:text-primary transition-colors">
-            <span class="material-symbols-outlined text-[18px]">content_copy</span>
+          <button id="btn-copy" aria-label="Copy the JSON shown here to the clipboard" title="Copy JSON" class="text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">content_copy</span>
           </button>
         </div>
       </div>

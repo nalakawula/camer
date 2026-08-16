@@ -210,10 +210,31 @@ function toast(message, kind = "info") {
   };
   const el = document.createElement("div");
   el.className = `toast bg-surface-container-highest border ${colors[kind]} rounded-lg px-4 py-3 shadow-[0_10px_25px_-5px_rgba(0,0,0,0.5)] max-w-md text-[13px] flex items-start gap-2`;
+  // role=alert interrupts; the container's polite region handles the rest.
+  if (kind === "error") el.setAttribute("role", "alert");
+
   const icon = kind === "success" ? "check_circle" : kind === "error" ? "error" : "info";
-  el.innerHTML = `<span class="material-symbols-outlined text-[18px] shrink-0">${icon}</span><span class="whitespace-pre-wrap break-words">${escapeHTML(message)}</span>`;
+  el.innerHTML =
+    `<span class="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">${icon}</span>` +
+    `<span class="whitespace-pre-wrap break-words flex-1">${escapeHTML(message)}</span>`;
+
+  const dismiss = () => {
+    el.style.opacity = "0";
+    el.style.transition = "opacity .3s";
+    setTimeout(() => el.remove(), 300);
+  };
+  const close = document.createElement("button");
+  close.className = "shrink-0 text-on-surface-variant hover:text-on-surface transition-colors";
+  close.setAttribute("aria-label", "Dismiss notification");
+  close.innerHTML = `<span class="material-symbols-outlined text-[16px]" aria-hidden="true">close</span>`;
+  close.addEventListener("click", dismiss);
+  el.appendChild(close);
+
   $("toasts").appendChild(el);
-  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; setTimeout(() => el.remove(), 300); }, kind === "error" ? 7000 : 3500);
+  // Errors persist until dismissed. An apply failure timing out of view — and
+  // out of a screen reader's buffer — is exactly the message you cannot afford
+  // to miss.
+  if (kind !== "error") setTimeout(dismiss, 3500);
 }
 
 function escapeHTML(s) {
@@ -837,7 +858,7 @@ function renderPatterns() {
     btn.className = "w-full text-left px-3 py-2 rounded-lg hover:bg-surface-container-high transition-colors group";
     btn.title = snippetText(p.code);
     btn.innerHTML = `<div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-[16px] text-on-surface-variant group-hover:text-primary shrink-0">bolt</span>
+        <span class="material-symbols-outlined text-[16px] text-on-surface-variant group-hover:text-primary shrink-0" aria-hidden="true">bolt</span>
         <span class="font-display text-on-surface truncate">${escapeHTML(p.name)}</span>
       </div>
       <div class="text-on-surface-variant text-[12px] font-body pl-6 truncate">${escapeHTML(p.desc || "")}</div>`;
@@ -1061,7 +1082,7 @@ function renderWarnings(warnings) {
   box.innerHTML = warnings.map((w) => {
     const loc = w.line ? `line ${w.line}` : "";
     const dir = w.directive ? `<b>${escapeHTML(w.directive)}</b> ` : "";
-    return `<div class="flex items-start gap-2 py-0.5"><span class="material-symbols-outlined text-[16px] shrink-0">warning</span><span>${dir}${escapeHTML(w.message)} ${loc ? `<span class="opacity-60">(${loc})</span>` : ""}</span></div>`;
+    return `<div class="flex items-start gap-2 py-0.5"><span class="material-symbols-outlined text-[16px] shrink-0" aria-hidden="true">warning</span><span>${dir}${escapeHTML(w.message)} ${loc ? `<span class="text-on-surface-variant">(${loc})</span>` : ""}</span></div>`;
   }).join("");
 }
 
