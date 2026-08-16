@@ -71,7 +71,7 @@ P2 quality and accessibility · P3 polish
 | CAM-32 | P3 | Track the test files in git | [x] |
 | CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [x] |
 | CAM-34 | P1 | Compare tab serves a stale result after the Caddyfile changes | [x] |
-| CAM-35 | P1 | Warn before an apply that moves or disables the admin API | [ ] |
+| CAM-35 | P1 | Warn before an apply that moves or disables the admin API | [x] |
 | CAM-36 | P3 | Route the discard-unsaved prompts through askDialog | [ ] |
 
 ---
@@ -1096,7 +1096,7 @@ that emptying the editor now reads "The editor is empty — there is nothing to 
 ---
 
 ### CAM-35 — Warn before an apply that moves or disables the admin API
-`[ ]` · P1 · Depends on: CAM-04 · Files: `web/app.js`
+`[x]` · P1 · Depends on: CAM-04 · Files: `web/app.js`
 
 **Problem.** Applying a Caddyfile can move the admin API out from under Camer, and the apply
 succeeds before anyone finds out. Found while testing CAM-08 against a real Caddy: apply a
@@ -1139,7 +1139,29 @@ a config that re-enables the endpoint.
 - Verified against a real Caddy for all three outcomes, and for the no-change case, which must
   stay silent.
 
----
+**Result.** `adminChange()` adapts the content that is about to be applied, reads the
+effective admin address out of the adapted JSON, and returns `{kind: "moved" | "disabled"}`
+or null. `renderAdminWarning` paints it into `#confirm-admin`, an amber block sitting between
+the target details and the diff in the CAM-04 confirmation. Both apply paths pass through it.
+
+The "no admin block" case gets its own sentence, because the cause is invisible otherwise:
+*this Caddyfile has no admin directive, so Caddy falls back to its default — which is not
+where Camer is pointed*. `admin off` gets a different one again: there is no address to move
+to, and the API stays gone until Caddy is restarted.
+
+**A false alarm found while testing, worth not regressing.** `admin :2020` — a wildcard bind —
+was reported as a move away from `127.0.0.1:2020`, though it is the same listener. The cause
+was `new URL()`: a wildcard normalizes to `http://:2020`, which URL rejects as having no host,
+so the comparison fell through to raw strings. `hostPort()` now parses by hand and classes
+`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`, `::` and the empty host as one address. Eight
+equivalence assertions cover it, including `[::1]` bracket form and the https default port.
+
+Verified against two real Caddy instances — the second started on admin port 2020 precisely so
+the "reverts to the default 2019" case could be reached — driving the real UI and cancelling
+every confirmation:
+
+| endpoint | Caddyfile | result |
+|---
 
 ### CAM-36 — Route the discard-unsaved prompts through askDialog
 `[ ]` · P3 · Depends on: CAM-11 · Files: `web/app.js`

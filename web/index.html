@@ -375,6 +375,10 @@
         <dt class="font-label text-[11px] tracking-wider text-on-surface-variant uppercase pt-0.5">Source</dt>
         <dd id="confirm-source" class="text-on-surface-variant"></dd>
       </dl>
+      <!-- Shown only when the config would move or disable the admin API, which
+           is the one change that can leave Camer unable to reach Caddy again. -->
+      <div id="confirm-admin" role="alert"
+        class="hidden items-start gap-2 text-[13px] text-tertiary bg-tertiary-container/20 border border-tertiary/40 rounded-lg px-3 py-2.5 flex"></div>
     </div>
     <!-- What will actually change, against the configuration that is live. -->
     <div class="px-4 pb-2 flex items-center gap-3 flex-wrap shrink-0 border-t border-outline-variant pt-3">

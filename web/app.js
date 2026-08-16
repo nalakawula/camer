@@ -1226,6 +1226,107 @@ async function fetchDiff(content, baseDeployID = null) {
   }
 }
 
+// ---- admin endpoint safety ----
+// Applying a config can move the admin API out from under Camer, or switch it
+// off entirely. The apply itself succeeds, so the only symptom is that every
+// later call fails as unreachable: a working apply followed by a dead tool, with
+// nothing on screen connecting the two. Detect it while it can still be
+// cancelled — this is the one action that reconfigures a live server and can
+// sever the connection used to fix it.
+const CADDY_DEFAULT_ADMIN = "localhost:2019";
+
+// hostPort reduces a normalized base URL to a comparable host:port, treating the
+// loopback spellings and the wildcard binds as one address — from Camer's side
+// localhost, 127.0.0.1, ::1 and a bare :2019 all name the same listener, and
+// warning about a move between them would be a false alarm. The URL parsing
+// itself stays server-side in normalizeBase; this only classes the results.
+//
+// Parsed by hand rather than with new URL(), which rejects the wildcard form
+// outright: `admin :2020` normalizes to "http://:2020", and URL treats an empty
+// host as invalid, so the whole comparison fell back to raw strings and reported
+// a move that was not one. A unix-socket admin address has no host:port and will
+// not compare equal to anything — correctly, since Camer cannot reach it.
+function hostPort(base) {
+  const s = String(base).trim();
+  const defaultPort = /^https:\/\//i.test(s) ? "443" : "80";
+  let rest = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/.*$/, "");
+
+  let host, port;
+  if (rest.startsWith("[")) {            // [::1]:2019
+    const close = rest.indexOf("]");
+    host = rest.slice(1, close);
+    port = rest.slice(close + 1).replace(/^:/, "");
+  } else {
+    const colon = rest.lastIndexOf(":");
+    host = colon === -1 ? rest : rest.slice(0, colon);
+    port = colon === -1 ? "" : rest.slice(colon + 1);
+  }
+
+  const loopback = ["", "localhost", "127.0.0.1", "::1", "0.0.0.0", "::"].includes(host);
+  return `${loopback ? "localhost" : host}:${port || defaultPort}`;
+}
+
+// adminChange reports how applying `caddyfile` would move the admin API, or null
+// when it stays where Camer is already pointed.
+//
+// It adapts the content being applied rather than reading the Adapted tab: a
+// re-apply sends historical content that is not in the editor, so that slot
+// would describe the wrong config.
+async function adminChange(caddyfile, endpoint, endpointBase) {
+  let cfg;
+  try {
+    cfg = JSON.parse((await api("POST", "/api/adapt", { caddyfile, endpoint })).json);
+  } catch {
+    // Unadaptable or unreachable — the apply is going to fail on its own, and a
+    // warning here would be guessing.
+    return null;
+  }
+
+  const admin = cfg && cfg.admin;
+  if (admin && admin.disabled === true) return { kind: "disabled" };
+
+  // A missing admin key is not "no change": Caddy falls back to its own default,
+  // which silently moves the endpoint for anyone not already on it.
+  const listen = (admin && admin.listen) || CADDY_DEFAULT_ADMIN;
+  const implicit = !(admin && admin.listen);
+
+  let base;
+  try {
+    base = (await api("GET", `/api/endpoint?url=${encodeURIComponent(listen)}`)).base;
+  } catch {
+    return null;
+  }
+  return hostPort(base) === hostPort(endpointBase)
+    ? null
+    : { kind: "moved", from: endpointBase, to: base, implicit };
+}
+
+function renderAdminWarning(change) {
+  const box = $("confirm-admin");
+  box.classList.toggle("hidden", !change);
+  if (!change) { box.innerHTML = ""; return; }
+
+  const body = change.kind === "disabled"
+    ? `<b>This turns the admin API off.</b> Caddy will stop listening for admin
+       requests the moment it is applied — not just to Camer, to everything. There
+       is no address to move to: the API stays gone until Caddy is restarted with
+       a configuration that re-enables it.`
+    : `<b>This moves the admin API to
+       <span class="font-code">${escapeHTML(change.to)}</span>.</b>
+       ${change.implicit
+         ? `This Caddyfile has no <span class="font-code">admin</span> directive, so Caddy
+            falls back to its default — which is not where Camer is pointed
+            (<span class="font-code">${escapeHTML(change.from)}</span>).`
+         : `Camer is currently using
+            <span class="font-code">${escapeHTML(change.from)}</span>.`}
+       After applying, Camer loses contact until you set the endpoint field to the
+       new address.`;
+
+  box.innerHTML =
+    `<span class="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">warning</span>
+     <span>${body}</span>`;
+}
+
 // renderConfirmDiff answers "what will this change?" before the change lands,
 // rather than only afterwards in the audit log.
 function renderConfirmDiff(res) {
@@ -1259,12 +1360,13 @@ function renderConfirmDiff(res) {
 }
 
 // confirmApply resolves true only when the user explicitly confirms.
-function confirmApply({ endpointBase, name, source, diffRes, title }) {
+function confirmApply({ endpointBase, name, source, diffRes, admin, title }) {
   const modal = $("confirm-modal");
   $("confirm-title").textContent = title || "Apply this configuration to Caddy?";
   $("confirm-endpoint").textContent = endpointBase + "/load";
   $("confirm-name").textContent = name;
   $("confirm-source").textContent = source;
+  renderAdminWarning(admin);
   renderConfirmDiff(diffRes);
 
   return new Promise((resolve) => {
@@ -1296,10 +1398,13 @@ async function applyConfig() {
     resolveEndpoint(endpoint),
     fetchDiff(caddyfile),
   ]);
+  // Needs the resolved base to compare against, so it follows rather than joins.
+  const admin = await adminChange(caddyfile, endpoint, endpointBase);
 
   const confirmed = await confirmApply({
     endpointBase,
     diffRes,
+    admin,
     name: $("config-name").value.trim() || "Untitled Caddyfile",
     source: isSaved()
       ? "the saved draft"
@@ -1319,11 +1424,14 @@ async function reapplyDeploy(d) {
     resolveEndpoint(endpoint),
     fetchDiff(d.content),
   ]);
+  // d.content, not the editor: a re-apply sends the historical configuration.
+  const admin = await adminChange(d.content, endpoint, endpointBase);
 
   const confirmed = await confirmApply({
     title: `Re-apply deploy #${d.id} to Caddy?`,
     endpointBase,
     diffRes,
+    admin,
     name: d.config_name || "Unsaved draft",
     source: `deploy #${d.id}, applied ${relTime(d.created_at)}`,
   });
