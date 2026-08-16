@@ -1,23 +1,183 @@
 "use strict";
 
-// ---- Caddyfile syntax mode for CodeMirror (simple-mode addon) ----
-CodeMirror.defineSimpleMode("caddyfile", {
-  start: [
-    { regex: /#.*/, token: "comment" },
-    { regex: /"(?:[^\\"]|\\.)*"?/, token: "string" },
-    // {block placeholders} and named matchers @name
-    { regex: /\{[^}\s]*\}/, token: "variable-2" },
-    { regex: /@[\w.-]+/, token: "variable-2" },
-    // site address at the start of a line (before an opening brace)
-    { regex: /^[^\s#{}][^\s{}]*(?=\s|\{|$)/, token: "def", sol: true },
-    { regex: /\b\d+\b/, token: "number" },
-    { regex: /[{}]/, token: "bracket" },
-    // first word on an indented line is a directive
-    { regex: /^\s+[a-zA-Z_][\w.]*/, token: "keyword", sol: true },
-    { regex: /[a-zA-Z_][\w.]*/, token: "variable" },
-  ],
-  meta: { lineComment: "#" },
+// The editor is vendored, but a stale cache or a bad deploy can still leave it
+// missing. Fail visibly rather than dying on the first call and leaving a page
+// that looks fine and does nothing — which is exactly how the CDN build failed.
+if (typeof CM === "undefined" || !CM.EditorView) {
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.createElement("div");
+    bar.setAttribute("role", "alert");
+    bar.style.cssText = "position:fixed;inset:0 0 auto 0;z-index:999;padding:14px 20px;" +
+      "background:#93000a;color:#ffdad6;font:14px system-ui,sans-serif";
+    bar.textContent = "Camer could not load its editor (web/vendor/codemirror.js). " +
+      "The page will not work. Check that the vendored assets are being served.";
+    document.body.prepend(bar);
+  });
+  throw new Error("CodeMirror bundle missing: web/vendor/codemirror.js did not load");
+}
+
+// ---- Caddyfile language (CodeMirror 6 stream parser) ----
+// The parser tracks brace depth, which buys three things at once: token
+// classification (the first word of a line is a site address at depth 0, a
+// directive inside a block), indentation, and — via the language — the
+// bracket-matching and auto-closing behaviour that used to be hand-rolled.
+const caddyfileLanguage = CM.StreamLanguage.define({
+  name: "caddyfile",
+
+  startState: () => ({ depth: 0, indented: false, first: true }),
+
+  token(stream, state) {
+    if (stream.sol()) {
+      // Leading whitespace is what separates a directive from a site address.
+      state.indented = stream.eatSpace();
+      state.first = true;
+    } else if (stream.eatSpace()) {
+      return null;
+    }
+    if (stream.eol()) return null;
+
+    const done = (tok) => { state.first = false; return tok; };
+
+    if (stream.peek() === "#") { stream.skipToEnd(); return done("comment"); }
+    if (stream.match(/"(?:[^\\"]|\\.)*"?/)) return done("string");
+    // {placeholders} like {uri}; a bare brace is a block delimiter, below.
+    if (stream.match(/\{[^{}\s]+\}/)) return done("variable-2");
+    if (stream.match(/@[\w.*-]+/)) return done("variable-2"); // named matcher
+    if (stream.eat("{")) { state.depth++; return done("bracket"); }
+    if (stream.eat("}")) { state.depth = Math.max(0, state.depth - 1); return done("bracket"); }
+    if (stream.match(/\d+\b/)) return done("number");
+
+    if (stream.match(/[^\s{}"#]+/)) {
+      const wasFirst = state.first;
+      state.first = false;
+      if (!wasFirst) return "variable";
+      return state.depth > 0 || state.indented ? "keyword" : "def";
+    }
+
+    stream.next();
+    return done(null);
+  },
+
+  // cx.unit is the configured indent width in columns; indentString turns the
+  // result back into tabs because indentUnit is a tab.
+  indent(state, textAfter, cx) {
+    const closing = /^\}/.test(textAfter) ? 1 : 0;
+    return Math.max(0, state.depth - closing) * cx.unit;
+  },
+
+  languageData: {
+    commentTokens: { line: "#" },
+    closeBrackets: { brackets: ["{", '"'] },
+    indentOnInput: /^\s*\}$/,
+  },
 });
+
+// Same palette as before; the v5 rules were global CSS, this is scoped to the
+// editor and keyed on syntax tags.
+const editorHighlight = CM.syntaxHighlighting(CM.HighlightStyle.define([
+  { tag: CM.tags.comment, color: "#8c909f", fontStyle: "italic" },
+  { tag: CM.tags.keyword, color: "#ffb786" },                            // directives
+  { tag: CM.tags.definition(CM.tags.variableName), color: "#adc6ff" },   // site addresses
+  { tag: CM.tags.special(CM.tags.variableName), color: "#c0c1ff" },      // {placeholders}, @matchers
+  { tag: CM.tags.variableName, color: "#dae2fd" },
+  { tag: CM.tags.string, color: "#dae2fd" },
+  { tag: CM.tags.number, color: "#ffb4ab" },
+  { tag: CM.tags.bracket, color: "#8c909f" },
+]));
+
+const editorTheme = CM.EditorView.theme({
+  "&": { height: "100%", backgroundColor: "#060e20", color: "#dae2fd", fontSize: "14px" },
+  "&.cm-focused": { outline: "none" },
+  ".cm-scroller": { fontFamily: '"JetBrains Mono", monospace', lineHeight: "1.7", overflow: "auto" },
+  ".cm-content": { caretColor: "#adc6ff", padding: "4px 0" },
+  ".cm-gutters": { backgroundColor: "#060e20", color: "#8c909f", borderRight: "1px solid #424754" },
+  ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 8px" },
+  ".cm-activeLine": { backgroundColor: "rgba(173,198,255,0.05)" },
+  ".cm-activeLineGutter": { backgroundColor: "rgba(173,198,255,0.05)", color: "#c2c6d6" },
+  "&.cm-focused .cm-cursor": { borderLeftColor: "#adc6ff" },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
+    backgroundColor: "rgba(173,198,255,0.20)",
+  },
+  // Bracket matching, now from the library rather than hand-rolled.
+  ".cm-matchingBracket": { backgroundColor: "rgba(173,198,255,0.22)", color: "#adc6ff", fontWeight: "600" },
+  ".cm-nonmatchingBracket": { color: "#ffb4ab", backgroundColor: "rgba(255,180,171,0.15)" },
+  // Snippet placeholders awaiting Tab.
+  ".cm-snippetField": { backgroundColor: "rgba(255,183,134,0.16)", outline: "1px dashed #ffb786" },
+}, { dark: true });
+
+// createEditor exposes only the handful of operations the rest of the app uses.
+// Keeping that surface small is what made moving from CodeMirror 5 to 6 a local
+// change instead of a rewrite.
+function createEditor(parent) {
+  let notify = () => {};
+
+  const extensions = [
+    CM.lineNumbers(),
+    CM.highlightActiveLine(),
+    CM.highlightActiveLineGutter(),
+    CM.drawSelection(),
+    CM.history(),
+    CM.EditorState.tabSize.of(2),
+    CM.indentUnit.of("\t"),   // Caddy's docs and every bundled snippet use tabs
+    // Required for linked snippet fields: a placeholder repeated in a pattern
+    // becomes several selection ranges edited together, and without this the
+    // state collapses them to one, so only the first occurrence would fill in.
+    CM.EditorState.allowMultipleSelections.of(true),
+    CM.bracketMatching(),
+    CM.closeBrackets(),
+    CM.indentOnInput(),
+    caddyfileLanguage,
+    editorHighlight,
+    editorTheme,
+    CM.keymap.of([
+      ...CM.closeBracketsKeymap,
+      ...CM.defaultKeymap,
+      ...CM.historyKeymap,
+      CM.indentWithTab,
+    ]),
+    CM.EditorView.updateListener.of((u) => { if (u.docChanged) notify(); }),
+  ];
+
+  const view = new CM.EditorView({ doc: "", parent, extensions });
+
+  return {
+    view,
+    getValue: () => view.state.doc.toString(),
+
+    // Replacing the document is always a "load", so it also resets undo history
+    // and reports the change — the same contract the old editor had.
+    setValue(text) {
+      view.setState(CM.EditorState.create({ doc: text, extensions }));
+      notify();
+    },
+
+    focus: () => view.focus(),
+    refresh: () => view.requestMeasure(),
+    onChange(cb) { notify = cb; },
+
+    // insertSnippet places a pattern at the cursor and selects its first
+    // placeholder; CodeMirror binds Tab to the remaining fields while one is
+    // active, and Escape to giving up on them.
+    insertSnippet(template) {
+      let pos = view.state.selection.main.head;
+      const before = view.state.doc.sliceString(0, pos);
+      // Keep a blank line between the snippet and whatever precedes it.
+      const prefix = !before.length || before.endsWith("\n\n") ? ""
+        : before.endsWith("\n") ? "\n" : "\n\n";
+      if (prefix) {
+        view.dispatch({
+          changes: { from: pos, insert: prefix },
+          selection: { anchor: pos + prefix.length },
+        });
+        pos += prefix.length;
+      }
+      // Insert on the fresh line, so the snippet's own indentation is not
+      // shifted by whatever the cursor line happened to be indented to.
+      CM.snippet(template)({ state: view.state, dispatch: (tr) => view.dispatch(tr) }, null, pos, pos);
+      view.focus();
+    },
+  };
+}
 
 // ---- tiny DOM helpers ----
 const $ = (id) => document.getElementById(id);
@@ -98,16 +258,7 @@ const state = {
   configs: [],
 };
 
-const editor = CodeMirror.fromTextArea($("editor"), {
-  mode: "caddyfile",
-  lineNumbers: true,
-  theme: "default",
-  styleActiveLine: true,
-  lineWrapping: false,
-  autofocus: true,
-  indentUnit: 2,
-  tabSize: 2,
-});
+const editor = createEditor($("editor-host"));
 
 const STARTER = `# Welcome to Camer. Edit this Caddyfile and watch the JSON preview update.
 example.com {
@@ -229,6 +380,27 @@ async function deleteConfig() {
   }
 }
 
+// ---- snippet template helpers ----
+// Mirrors CodeMirror's own template grammar so the UI can describe a snippet
+// without instantiating it.
+const SNIPPET_FIELD = "[#$]\\{(?:(\\d+)(?::([^{}]*))?|((?:\\\\[{}]|[^{}])*))\\}";
+
+// snippetText renders a template as the literal text it will insert, for tooltips.
+function snippetText(template) {
+  return template.replace(new RegExp(SNIPPET_FIELD, "g"), (m, seq, label, name) => label || name || "");
+}
+
+// countSnippetFields counts distinct placeholders. Fields sharing a name are
+// edited together, so they count once — the same linking CodeMirror applies.
+function countSnippetFields(template) {
+  const seen = new Set();
+  for (const m of template.matchAll(new RegExp(SNIPPET_FIELD, "g"))) {
+    if (m[1] === "0") continue; // ${0} is the final cursor, not a field
+    seen.add(m[1] ? "#" + m[1] : (m[2] || m[3] || ""));
+  }
+  return seen.size;
+}
+
 // ---- common patterns menu ----
 function renderPatterns() {
   const list = $("patterns-list");
@@ -237,7 +409,7 @@ function renderPatterns() {
   for (const p of patterns) {
     const btn = document.createElement("button");
     btn.className = "w-full text-left px-3 py-2 rounded-lg hover:bg-surface-container-high transition-colors group";
-    btn.title = p.code;
+    btn.title = snippetText(p.code);
     btn.innerHTML = `<div class="flex items-center gap-2">
         <span class="material-symbols-outlined text-[16px] text-on-surface-variant group-hover:text-primary shrink-0">bolt</span>
         <span class="font-display text-on-surface truncate">${escapeHTML(p.name)}</span>
@@ -248,24 +420,15 @@ function renderPatterns() {
   }
 }
 
-function insertPattern(code) {
-  const doc = editor.getDoc();
-  const cur = doc.getCursor();
-  // Separate the snippet from any preceding, non-blank content with a blank line.
-  let prefix = "";
-  if (cur.line > 0 || cur.ch > 0) {
-    const before = doc.getRange({ line: 0, ch: 0 }, cur);
-    if (before.length && !before.endsWith("\n\n")) {
-      prefix = before.endsWith("\n") ? "\n" : "\n\n";
-    }
+// insertPattern hands the template to CodeMirror's snippet support, which
+// selects the first placeholder and binds Tab to the rest.
+function insertPattern(template) {
+  editor.insertSnippet(template);
+  const fields = countSnippetFields(template);
+  if (fields > 1) {
+    toast(`Inserted. Tab moves through the ${fields} highlighted placeholders.`, "info");
   }
-  const snippet = prefix + code;
-  doc.replaceRange(snippet, cur);
-  // Move the cursor to just past the inserted text and focus the editor.
-  const end = doc.posFromIndex(doc.indexFromPos(cur) + snippet.length);
-  doc.setCursor(end);
-  editor.focus();
-  refreshDirty();
+  refreshState();
   scheduleAdapt(false);
 }
 
