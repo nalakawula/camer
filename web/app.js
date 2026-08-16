@@ -208,6 +208,49 @@ async function deleteConfig() {
   }
 }
 
+// ---- common patterns menu ----
+function renderPatterns() {
+  const list = $("patterns-list");
+  const patterns = window.CADDY_PATTERNS || [];
+  list.innerHTML = "";
+  for (const p of patterns) {
+    const btn = document.createElement("button");
+    btn.className = "w-full text-left px-3 py-2 rounded-lg hover:bg-surface-container-high transition-colors group";
+    btn.title = p.code;
+    btn.innerHTML = `<div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px] text-on-surface-variant group-hover:text-primary shrink-0">bolt</span>
+        <span class="font-display text-on-surface truncate">${escapeHTML(p.name)}</span>
+      </div>
+      <div class="text-on-surface-variant text-[12px] font-body pl-6 truncate">${escapeHTML(p.desc || "")}</div>`;
+    btn.addEventListener("click", () => { insertPattern(p.code); closePatterns(); });
+    list.appendChild(btn);
+  }
+}
+
+function insertPattern(code) {
+  const doc = editor.getDoc();
+  const cur = doc.getCursor();
+  // Separate the snippet from any preceding, non-blank content with a blank line.
+  let prefix = "";
+  if (cur.line > 0 || cur.ch > 0) {
+    const before = doc.getRange({ line: 0, ch: 0 }, cur);
+    if (before.length && !before.endsWith("\n\n")) {
+      prefix = before.endsWith("\n") ? "\n" : "\n\n";
+    }
+  }
+  const snippet = prefix + code;
+  doc.replaceRange(snippet, cur);
+  // Move the cursor to just past the inserted text and focus the editor.
+  const end = doc.posFromIndex(doc.indexFromPos(cur) + snippet.length);
+  doc.setCursor(end);
+  editor.focus();
+  refreshDirty();
+  scheduleAdapt(false);
+}
+
+function togglePatterns() { $("patterns-menu").classList.toggle("hidden"); }
+function closePatterns() { $("patterns-menu").classList.add("hidden"); }
+
 // ---- adapt (JSON preview), debounced ----
 let adaptTimer = null;
 let adaptSeq = 0;
@@ -324,6 +367,15 @@ $("btn-submit").addEventListener("click", submitToCaddy);
 $("btn-fetch").addEventListener("click", pullCurrent);
 $("btn-copy").addEventListener("click", copyJSON);
 $("btn-refresh-list").addEventListener("click", loadConfigList);
+$("btn-patterns").addEventListener("click", (e) => { e.stopPropagation(); togglePatterns(); });
+// Close the patterns menu on outside click or Escape.
+document.addEventListener("click", (e) => {
+  if (!$("patterns-menu").classList.contains("hidden") &&
+      !$("patterns-menu").contains(e.target) && e.target !== $("btn-patterns")) {
+    closePatterns();
+  }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePatterns(); });
 
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveConfig(); }
@@ -332,6 +384,7 @@ window.addEventListener("beforeunload", (e) => { if (isDirty()) { e.preventDefau
 
 // ---- boot ----
 loadEndpoint();
+renderPatterns();
 editor.setValue(STARTER);
 editor.clearHistory();
 loadConfigList();
