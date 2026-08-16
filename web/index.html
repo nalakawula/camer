@@ -118,12 +118,17 @@
       </div>
     </div>
     <div class="flex items-center gap-3">
-      <span id="dirty-badge" class="hidden font-label text-[12px] text-tertiary bg-tertiary-container/20 px-2 py-1 rounded">UNSAVED</span>
-      <button id="btn-save" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-4 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
-        <span class="material-symbols-outlined text-[18px]">save</span> Save Draft
+      <!-- One indicator for both questions: is this saved, and is it what Caddy is running. -->
+      <span id="state-badge" class="font-label text-[12px] px-2 py-1 rounded flex items-center gap-2 border border-outline-variant" title="">
+        <span id="state-dot" class="w-1.5 h-1.5 rounded-full block shrink-0"></span>
+        <span id="state-text">…</span>
+      </span>
+      <button id="btn-save" title="Save draft (Ctrl/Cmd+S)" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-4 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">save</span>
+        <span class="hidden sm:inline">Save Draft</span>
       </button>
-      <button id="btn-delete" title="Delete this config" class="border border-outline-variant hover:border-error text-on-surface-variant hover:text-error font-medium p-1.5 rounded-lg transition-colors active:scale-95 duration-150 flex items-center">
-        <span class="material-symbols-outlined text-[18px]">delete</span>
+      <button id="btn-delete" aria-label="Delete this saved draft" title="Delete this saved draft" class="border border-outline-variant hover:border-error text-on-surface-variant hover:text-error font-medium p-1.5 rounded-lg transition-colors active:scale-95 duration-150 flex items-center">
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">delete</span>
       </button>
     </div>
   </header>
@@ -150,7 +155,6 @@
               <div id="patterns-list" class="flex flex-col gap-0.5"></div>
             </div>
           </div>
-          <span class="font-label text-[12px] text-on-surface-variant bg-surface-variant px-2 py-1 rounded">DRAFT</span>
         </div>
       </div>
       <div id="editor-host" class="flex-1 overflow-hidden"></div>

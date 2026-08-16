@@ -460,6 +460,10 @@ const state = {
   savedContent: "",    // last-persisted content, to compute the dirty flag
   savedName: "",
   configs: [],
+  live: null,          // {id, configId, content, created_at} of the last successful deploy
+  applying: false,     // an apply is in flight
+  applyFailed: false,  // the last apply failed; sticky until the user acts again
+  restoredFrom: null,  // {deployId, configName, wouldOverwrite} when loaded from history
 };
 
 const editor = createEditor($("editor-host"));
@@ -472,15 +476,78 @@ const STARTER = `example.com {
 }
 `;
 
-// ---- dirty tracking ----
+// ---- state indicator ----
+// The UI has to answer two independent questions at once — is this persisted to
+// SQLite, and is it what Caddy is actually running — so one badge reports both.
+// Reporting only the first is how a user comes to believe a saved draft is live.
+const STATES = {
+  applying:   { text: "Applying…",                  cls: "text-tertiary",           dot: "bg-tertiary animate-pulse", hint: "Sending the configuration to Caddy." },
+  failed:     { text: "Apply failed",               cls: "text-error",              dot: "bg-error",                  hint: "The last apply did not succeed — Caddy is still running the previous configuration." },
+  live:       { text: "Live",                       cls: "text-success",            dot: "bg-success",                hint: "This is the configuration Caddy is running." },
+  unsaved:    { text: "Unsaved changes",            cls: "text-tertiary",           dot: "bg-tertiary",               hint: "The editor differs from the saved draft." },
+  differs:    { text: "Saved · differs from live",  cls: "text-primary",            dot: "bg-primary",                hint: "The draft is saved, but Caddy is running something else. Apply to make it live." },
+  notApplied: { text: "Saved · not applied",        cls: "text-on-surface-variant", dot: "bg-on-surface-variant",     hint: "The draft is saved. Nothing has been applied to Caddy yet." },
+};
+
 function isDirty() {
   return editor.getValue() !== state.savedContent || $("config-name").value !== state.savedName;
 }
-function refreshDirty() {
-  $("dirty-badge").classList.toggle("hidden", !isDirty());
+
+// isSaved is stricter than !isDirty(): content loaded into a brand new, never
+// persisted draft is not dirty, but it is certainly not saved either.
+function isSaved() {
+  return state.currentId != null && !isDirty();
 }
 
-// ---- endpoint persistence ----
+function matchesLive() {
+  return state.live != null && editor.getValue() === state.live.content;
+}
+
+function stateKey() {
+  if (state.applying) return "applying";
+  if (state.applyFailed) return "failed";
+  // What is running matters more than what is filed, so check it first.
+  if (matchesLive() && !isDirty()) return "live";
+  if (!isSaved()) return "unsaved";
+  return state.live != null ? "differs" : "notApplied";
+}
+
+function refreshState() {
+  const key = stateKey();
+  const s = STATES[key];
+  $("state-text").textContent = s.text;
+  $("state-text").className = s.cls;
+  $("state-dot").className = "w-1.5 h-1.5 rounded-full block shrink-0 " + s.dot;
+
+  // Restoring from history is the one case where "unsaved" understates the risk:
+  // saving would replace a draft that is newer than what the editor holds.
+  const over = state.restoredFrom;
+  $("state-badge").title = (key === "unsaved" && over && over.wouldOverwrite)
+    ? `Loaded from deploy #${over.deployId}. Saving will ask before overwriting the newer draft “${over.configName}”.`
+    : s.hint;
+
+  // Delete only means something when there is a saved config to delete.
+  const btn = $("btn-delete");
+  const deletable = state.currentId != null;
+  btn.disabled = !deletable;
+  btn.title = deletable
+    ? "Delete this saved Caddyfile"
+    : "Nothing to delete — this draft has never been saved";
+  btn.classList.toggle("opacity-40", !deletable);
+  btn.classList.toggle("cursor-not-allowed", !deletable);
+}
+
+// clearApplyFailure drops the sticky failure state once the user does something
+// else; it must never clear itself on a timer, or a failed apply ends up looking
+// like a healthy one.
+function clearApplyFailure() {
+  if (state.applyFailed) state.applyFailed = false;
+}
+
+// ---- endpoint field ----
+// This field drives the live JSON preview as well as apply, which is not obvious
+// from its position next to the Apply button — hence the helper text, and hence
+// re-adapting when it changes.
 function loadEndpoint() {
   const saved = localStorage.getItem("camer.endpoint");
   if (saved) $("endpoint").value = saved;
@@ -523,10 +590,10 @@ function loadIntoEditor(id, name, content) {
   state.currentId = id;
   state.savedContent = content;
   state.savedName = name;
+  state.restoredFrom = null; // restoreDeploy re-sets this after calling us
   $("config-name").value = name;
   editor.setValue(content);
-  editor.clearHistory();
-  refreshDirty();
+  refreshState();
   renderConfigList();
 }
 
@@ -549,20 +616,53 @@ function newConfig() {
 }
 
 async function saveConfig() {
-  const name = $("config-name").value.trim() || "Untitled Caddyfile";
+  let name = $("config-name").value.trim() || "Untitled Caddyfile";
   const content = editor.getValue();
+  // Decided below, then committed to state only once the request succeeds, so a
+  // failed save cannot detach the editor from its config.
+  let targetId = state.currentId;
+
+  // A Caddyfile restored from history is attached to its source config, so a
+  // plain save would silently replace that draft's current content — which may
+  // be newer than the deploy. Make the overwrite a decision, not an accident.
+  if (state.restoredFrom && state.restoredFrom.wouldOverwrite && state.currentId != null) {
+    const current = state.configs.find((c) => c.id === state.currentId);
+    if (current && current.content !== content) {
+      const choice = await askDialog({
+        title: "Overwrite the newer saved draft?",
+        icon: "warning",
+        body: [
+          `The editor holds deploy #${state.restoredFrom.deployId}, but the saved draft “${current.name}” has different content.`,
+          "Overwriting replaces that draft. Saving as a new config keeps both.",
+        ],
+        actions: [
+          { key: "cancel", label: "Cancel" },
+          { key: "new", label: "Save as new config" },
+          { key: "overwrite", label: "Overwrite draft", danger: true },
+        ],
+      });
+      if (choice !== "new" && choice !== "overwrite") return;
+      if (choice === "new") {
+        // No id takes the create path below, leaving the original draft intact.
+        targetId = null;
+        name = `${name} (deploy #${state.restoredFrom.deployId})`;
+      }
+    }
+  }
+
   try {
     let c;
-    if (state.currentId == null) {
+    if (targetId == null) {
       c = await api("POST", "/api/configs", { name, content });
-      state.currentId = c.id;
     } else {
-      c = await api("PUT", `/api/configs/${state.currentId}`, { name, content });
+      c = await api("PUT", `/api/configs/${targetId}`, { name, content });
     }
+    state.currentId = c.id;
     state.savedContent = c.content;
     state.savedName = c.name;
+    state.restoredFrom = null;
     $("config-name").value = c.name;
-    refreshDirty();
+    refreshState();
     await loadConfigList();
     toast("Saved draft “" + c.name + "”", "success");
   } catch (e) {
@@ -570,15 +670,34 @@ async function saveConfig() {
   }
 }
 
+// deleteConfig deletes the saved config. It is unreachable when nothing is
+// saved — the button is disabled in that state, rather than quietly falling
+// through to "reset the editor to the sample", which is what it used to do
+// behind a label that said Delete.
 async function deleteConfig() {
-  if (state.currentId == null) { newConfig(); return; }
-  if (!confirm("Delete this Caddyfile permanently?")) return;
+  if (state.currentId == null) return;
+  const name = state.savedName || $("config-name").value.trim() || "Untitled Caddyfile";
+
+  const choice = await askDialog({
+    title: "Delete this saved draft?",
+    icon: "delete",
+    iconCls: "text-error",
+    body: [
+      `“${name}” will be removed from Camer permanently.`,
+      "Caddy keeps serving whatever is live — deleting a draft never changes the running configuration.",
+    ],
+    actions: [
+      { key: "cancel", label: "Cancel" },
+      { key: "delete", label: "Delete permanently", danger: true },
+    ],
+  });
+  if (choice !== "delete") return;
+
   try {
     await api("DELETE", `/api/configs/${state.currentId}`);
-    toast("Deleted", "success");
-    state.currentId = null;
+    loadIntoEditor(null, "", "");
     await loadConfigList();
-    newConfig();
+    toast(`Deleted “${name}”. The editor is now empty.`, "success");
   } catch (e) {
     toast("Delete failed: " + e.message, "error");
   }
@@ -1024,23 +1143,64 @@ function restoreDeploy(d) {
   loadIntoEditor(cfg ? cfg.id : null, cfg ? cfg.name : "", cfg ? cfg.content : "");
   if (!cfg) $("config-name").value = d.config_name || "";
   editor.setValue(d.content);
-  refreshDirty();
+
+  // Remember the provenance: saving from here would overwrite the draft's own
+  // content, and the user deserves to know that before pressing Ctrl+S.
+  const wouldOverwrite = !!cfg && cfg.content !== d.content;
+  state.restoredFrom = { deployId: d.id, configName: cfg ? cfg.name : null, wouldOverwrite };
+
+  refreshState();
   closeHistory();
   scheduleAdapt(true);
-  toast(`Loaded deploy #${d.id} into the editor.`, "success");
+  if (wouldOverwrite) {
+    toast(`Loaded deploy #${d.id}. The saved draft “${cfg.name}” holds different content — saving will ask before overwriting it.`, "info");
+  } else {
+    toast(`Loaded deploy #${d.id} into the editor.`, "success");
+  }
+}
+
+// ---- what is live ----
+// fetchLatest returns the last successful deploy (with its source config when it
+// still exists), or null when nothing has ever been applied.
+async function fetchLatest() {
+  try {
+    return await api("GET", "/api/deploys/latest");
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    return null;
+  }
+}
+
+// refreshLive re-reads what Caddy is running so the state badge cannot drift from
+// the server's own record of it.
+async function refreshLive() {
+  try {
+    const res = await fetchLatest();
+    state.live = res
+      ? { id: res.deploy.id, configId: res.deploy.config_id ?? null,
+          content: res.deploy.content, created_at: res.deploy.created_at }
+      : null;
+  } catch {
+    // Leave the previous value; a failed refresh is not evidence of a change.
+  }
 }
 
 // ---- boot: start from what is actually running ----
 async function openLastApplied() {
   let res;
   try {
-    res = await api("GET", "/api/deploys/latest");
+    res = await fetchLatest();
   } catch (e) {
-    if (e.status !== 404) toast("Could not load the last applied config: " + e.message, "error");
+    toast("Could not load the last applied config: " + e.message, "error");
+    loadIntoEditor(null, "", STARTER);
+    return;
+  }
+  if (!res) {
     loadIntoEditor(null, "", STARTER);
     return;
   }
   const d = res.deploy;
+  state.live = { id: d.id, configId: d.config_id ?? null, content: d.content, created_at: d.created_at };
   // Only adopt the recorded endpoint when the browser has no preference.
   if (!localStorage.getItem("camer.endpoint") && d.endpoint) $("endpoint").value = d.endpoint;
 
@@ -1097,5 +1257,6 @@ window.addEventListener("beforeunload", (e) => { if (isDirty()) { e.preventDefau
   await loadConfigList();
   // Start from the configuration that is live, not from a sample.
   await openLastApplied();
+  refreshState();
   scheduleAdapt(true);
 })();
