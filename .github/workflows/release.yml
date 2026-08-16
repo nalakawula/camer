@@ -1,0 +1,138 @@
+name: Release
+
+# Publishes Linux binaries for amd64 and arm64 when a v* tag is pushed.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Running it by hand (workflow_dispatch) builds and uploads the same artifacts
+# but publishes nothing, so the pipeline can be exercised without cutting a
+# release.
+#
+# No Node step: the CodeMirror bundle, the Tailwind stylesheet and the icon font
+# under web/vendor/ are committed, so `go build` alone produces a working binary.
+# modernc.org/sqlite is pure Go, so CGO stays off and cross-compiling to arm64 is
+# just an environment variable.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# A second push to the same tag should not race the first run to the release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Vet and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          # Tracks the toolchain in go.mod rather than pinning a second copy of
+          # the version here, where it would drift.
+          go-version-file: go.mod
+
+      - run: go vet ./...
+      - run: go test ./...
+
+  release:
+    name: Build and publish
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed by `gh release` to create the release and upload to it.
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `gh release --generate-notes` compares against the previous tag, so
+          # the full history has to be present.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build linux/amd64 and linux/arm64
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist
+
+          # Both targets build in one job on purpose. Cross-compiling costs
+          # seconds with CGO off, and a matrix would have two jobs racing to
+          # create the same release.
+          for arch in amd64 arm64; do
+            echo "==> building linux/${arch}"
+            GOARCH="${arch}" go build -trimpath -ldflags="-s -w" -o "dist/camer" .
+
+            file "dist/camer"
+            tar -czf "dist/camer_${version}_linux_${arch}.tar.gz" \
+              -C dist camer -C "${GITHUB_WORKSPACE}" README.md
+            rm "dist/camer"
+          done
+
+          ( cd dist && sha256sum ./*.tar.gz > checksums.txt )
+          ls -lh dist
+
+      - name: Smoke-test the amd64 binary
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          tar -xzf dist/camer_"${GITHUB_REF_NAME}"_linux_amd64.tar.gz -C "$tmp"
+
+          "$tmp/camer" -addr 127.0.0.1:8787 -db "$tmp/smoke.db" &
+          pid=$!
+          # Fail fast rather than hanging the job if it never comes up.
+          for _ in $(seq 1 20); do
+            curl -fsS -o /dev/null http://127.0.0.1:8787/ && break || sleep 0.5
+          done
+
+          # The page and every asset must come out of the binary itself: this is
+          # what catches a build that shipped without web/vendor embedded.
+          for path in / /vendor/codemirror.js /vendor/tailwind.css /vendor/fonts/fonts.css /app.js; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8787${path}")"
+            echo "  ${path} -> ${code}"
+            [ "$code" = "200" ] || { echo "FAIL: ${path} returned ${code}"; kill $pid; exit 1; }
+          done
+
+          kill $pid
+          echo "binary serves its embedded assets"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: camer-linux-binaries
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish the release
+        # Manual runs stop here: they exist to check the build, not to publish.
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+
+          # Re-running a tag build should update the release rather than fail on
+          # "already exists".
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* \
+              --title "$tag" \
+              --generate-notes \
+              --verify-tag
+          fi

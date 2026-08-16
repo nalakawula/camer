@@ -50,6 +50,24 @@ The browser only ever talks to Camer; Camer proxies to the Caddy admin API
 server-side, so there are no CORS issues and the admin endpoint may be bound to
 localhost or a private address.
 
+## Install
+
+Prebuilt Linux binaries for **amd64** and **arm64** are attached to every
+[release](https://github.com/nalakawula/camer/releases). They are static — no
+CGO, no shared libraries, and the web assets are inside the binary:
+
+```sh
+curl -fsSL -o camer.tar.gz \
+  https://github.com/nalakawula/camer/releases/latest/download/camer_v0.1.0_linux_amd64.tar.gz
+tar -xzf camer.tar.gz && ./camer
+```
+
+`checksums.txt` on the release lists the SHA-256 of each archive.
+
+Cutting a release is `git tag v0.1.0 && git push origin v0.1.0`; the workflow in
+`.github/workflows/release.yml` builds both architectures, smoke-tests the
+binary and publishes it.
+
 ## Run
 
 ```sh

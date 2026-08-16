@@ -9,3 +9,6 @@
 # web/vendor/ holds generated-but-committed assets, and a global gitignore of
 # "vendor/" is common enough to be worth overriding here explicitly.
 !/web/vendor/
+
+# Release build output (.github/workflows/release.yml).
+/dist/
