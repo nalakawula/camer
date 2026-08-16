@@ -655,7 +655,7 @@ async function loadConfigList() {
     state.configs = await api("GET", "/api/configs");
     renderConfigList();
   } catch (e) {
-    toast("Could not load configs: " + e.message, "error");
+    toast("Could not load drafts: " + e.message, "error");
   }
 }
 
@@ -729,7 +729,7 @@ async function selectConfig(id) {
     setDrawer(false);
     scheduleAdapt(true);
   } catch (e) {
-    toast("Failed to open config: " + e.message, "error");
+    toast("Failed to open draft: " + e.message, "error");
   }
 }
 

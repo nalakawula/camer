@@ -327,12 +327,12 @@
         </p>
       </div>
     </div>
-    <div class="flex items-center gap-3 shrink-0">
-      <button id="btn-fetch" title="Pull the running config from Caddy" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-2.5 px-4 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
-        <span class="material-symbols-outlined text-[18px]">cloud_download</span> Pull Current
+    <div id="footer-actions" class="flex items-center gap-3 shrink-0">
+      <button id="btn-fetch" title="Fetch the configuration Caddy is running into the Running tab" class="flex-1 lg:flex-none justify-center border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-2.5 px-4 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">cloud_download</span> Pull Running
       </button>
-      <button id="btn-submit" class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2.5 px-6 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 shadow-[0_4px_14px_0_rgba(173,198,255,0.15)] disabled:opacity-50 disabled:cursor-not-allowed">
-        <span class="material-symbols-outlined">send</span> Submit to Admin API
+      <button id="btn-submit" title="Apply to Caddy (Ctrl/Cmd+Enter)" class="flex-1 lg:flex-none justify-center bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2.5 px-6 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 shadow-[0_4px_14px_0_rgba(173,198,255,0.15)] disabled:opacity-50 disabled:cursor-not-allowed">
+        <span class="material-symbols-outlined" aria-hidden="true">send</span> Apply to Caddy
       </button>
     </div>
   </div>
