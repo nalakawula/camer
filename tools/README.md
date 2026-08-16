@@ -12,9 +12,11 @@ These scripts only need re-running when a vendored dependency changes.
 cd tools
 npm install
 npm run build          # rollup -c -> web/vendor/codemirror.js + web/vendor/tailwind.css
-python3 ../tools/vendor-fonts.py   # run from the repo root; -> web/vendor/fonts/ (icons only)
+npm run fonts          # -> web/vendor/fonts/ (icons only; needs network)
 npm test               # headless check of the editor integration
 ```
+
+Node is the only toolchain here — there is no Python step.
 
 ## How the CodeMirror bundle is built
 

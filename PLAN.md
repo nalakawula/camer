@@ -98,7 +98,7 @@ separately as **CAM-33**, which has since landed — so no external reference re
 - `go build` then running the binary offline gives a working editor. ✔
 - `app.js` fails loudly rather than silently if its editor dependency is missing. ✔
 
-**Result.** `tools/vendor-fonts.py` downloads the Material Symbols subset into
+**Result.** `tools/vendor-fonts.mjs` downloads the Material Symbols subset into
 `web/vendor/fonts/` and rewrites `fonts.css` to point at the local file. The face is
 subsetted via the `icon_names=` parameter to the 36 icons the UI actually uses: **31 KB
 instead of several megabytes**.
