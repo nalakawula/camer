@@ -1,4 +1,5 @@
 # Camer — Caddyfile Manager
+<img width="1771" height="960" alt="image" src="https://github.com/user-attachments/assets/506c2c7e-bf4a-45f7-b10a-231e223078a8" />
 
 A web UI to edit Caddyfiles, preview the adapted native JSON live, and apply the
 config to a running Caddy via its admin API.
