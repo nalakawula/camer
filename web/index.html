@@ -41,6 +41,17 @@
   #editor-host { height:100%; overflow:hidden; }
   /* JSON preview highlight */
   .j-key{color:#c0c1ff;} .j-str{color:#ffb786;} .j-num{color:#ffb4ab;} .j-bool{color:#adc6ff;} .j-null{color:#8c909f;} .j-punc{color:#8c909f;}
+  /* JSON rows: one per line, so folding can hide ranges and find can walk them */
+  .jl{display:flex;padding:0 16px;white-space:pre;}
+  #json-preview.wrap .jl{white-space:pre-wrap;word-break:break-word;}
+  .jl[hidden]{display:none;}
+  .jl-fold{width:16px;flex:none;color:#8c909f;cursor:pointer;user-select:none;background:none;border:0;padding:0;font:inherit;line-height:inherit;text-align:left;}
+  .jl-fold:hover{color:#adc6ff;}
+  .jl-text{flex:1;min-width:0;}
+  .jl-ellipsis{color:#8c909f;background:rgba(140,144,159,.15);border-radius:3px;padding:0 4px;margin-left:2px;cursor:pointer;}
+  .jl mark{background:rgba(255,183,134,.30);color:#ffdcc6;border-radius:2px;}
+  .jl mark.on{background:#ffb786;color:#311400;}
+  .jl.hit-current{background:rgba(173,198,255,0.07);}
   ::-webkit-scrollbar{width:10px;height:10px;} ::-webkit-scrollbar-track{background:transparent;}
   ::-webkit-scrollbar-thumb{background:#2d3449;border-radius:9999px;border:2px solid #0b1326;}
   ::-webkit-scrollbar-thumb:hover{background:#424754;}
@@ -152,12 +163,19 @@
       </div>
     </div>
 
-    <!-- JSON preview -->
-    <div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
-      <div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
-        <span class="font-display font-medium text-on-surface flex items-center gap-2">
-          <span class="material-symbols-outlined text-[16px] text-tertiary">data_object</span> JSON Preview
-        </span>
+    <!-- JSON pane -->
+    <div id="pane-json" class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
+      <div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center gap-3 shrink-0 flex-wrap">
+        <!-- The pane used to show three different documents behind one label.
+             Now the mode is explicit and only ever changes when asked. -->
+        <div class="flex items-center gap-1" role="tablist" aria-label="JSON view">
+          <button id="mode-adapted" role="tab" aria-selected="true"
+            class="text-[13px] font-medium px-2.5 py-1 rounded-lg border transition-colors">Adapted</button>
+          <button id="mode-running" role="tab" aria-selected="false"
+            class="text-[13px] font-medium px-2.5 py-1 rounded-lg border transition-colors">Running</button>
+          <button id="mode-compare" role="tab" aria-selected="false"
+            class="text-[13px] font-medium px-2.5 py-1 rounded-lg border transition-colors">Compare</button>
+        </div>
         <div class="flex items-center gap-3">
           <span id="preview-status" class="font-label text-[12px] text-on-surface-variant"></span>
           <button id="btn-copy" title="Copy JSON" class="text-on-surface-variant hover:text-primary transition-colors">
@@ -165,10 +183,38 @@
           </button>
         </div>
       </div>
-      <div id="warnings" class="hidden shrink-0 max-h-40 overflow-y-auto border-b border-outline-variant bg-tertiary-container/10 px-4 py-2 text-[13px] text-tertiary-fixed-dim font-code"></div>
-      <div class="flex-1 overflow-auto bg-surface-container-lowest p-4">
-        <pre class="font-code text-[14px] leading-[1.7]"><code id="json-preview" class="text-on-surface"></code></pre>
+      <!-- Find / fold / wrap. Real Caddy JSON runs to thousands of lines. -->
+      <div id="json-tools" class="shrink-0 border-b border-outline-variant px-3 py-1.5 flex items-center gap-2 flex-wrap">
+        <div class="relative flex-1 min-w-[9rem]">
+          <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px]" aria-hidden="true">search</span>
+          <input id="json-find" type="search" placeholder="Find in JSON…" aria-label="Find in JSON"
+            class="bg-surface-container-lowest border border-outline-variant rounded-lg pl-7 pr-2 py-1 text-[12px] text-on-surface focus:outline-none focus:border-primary w-full font-code transition-colors" />
+        </div>
+        <span id="json-find-count" class="font-label text-[11px] text-on-surface-variant whitespace-nowrap"></span>
+        <button id="json-find-prev" aria-label="Previous match" title="Previous match (Shift+Enter)" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">keyboard_arrow_up</span>
+        </button>
+        <button id="json-find-next" aria-label="Next match" title="Next match (Enter)" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">keyboard_arrow_down</span>
+        </button>
+        <span class="w-px h-4 bg-outline-variant" aria-hidden="true"></span>
+        <button id="json-collapse" title="Collapse all" aria-label="Collapse all objects" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">unfold_less</span>
+        </button>
+        <button id="json-expand" title="Expand all" aria-label="Expand all objects" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">unfold_more</span>
+        </button>
+        <button id="json-wrap" title="Toggle line wrapping" aria-label="Toggle line wrapping" aria-pressed="false" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">wrap_text</span>
+        </button>
       </div>
+      <div id="mode-note" class="hidden shrink-0 border-b border-outline-variant px-4 py-1.5 text-[12px] text-on-surface-variant"></div>
+      <div id="warnings" class="hidden shrink-0 max-h-40 overflow-y-auto border-b border-outline-variant bg-tertiary-container/10 px-4 py-2 text-[13px] text-tertiary-fixed-dim font-code"></div>
+      <div id="json-scroll" class="flex-1 overflow-auto bg-surface-container-lowest py-3">
+        <div id="json-preview" class="font-code text-[14px] leading-[1.7] text-on-surface"></div>
+      </div>
+      <!-- Compare mode renders a diff instead of a document. -->
+      <div id="compare-body" class="hidden flex-1 overflow-auto bg-surface-container-lowest font-code text-[13px] leading-[1.6] py-2"></div>
     </div>
   </main>
 

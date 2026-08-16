@@ -234,6 +234,211 @@ function relTime(iso) {
   return absTime(iso);
 }
 
+// ---- JSON document viewer ----
+// Real Caddy configs run to thousands of lines, so the pane needs find and
+// folding, and must not rebuild everything on every debounced adapt. Rows are
+// one-per-line: folding hides ranges, which keeps every line in the DOM so find
+// can still reach text inside collapsed blocks and open it.
+const jsonView = {
+  text: null,       // last text rendered, so an unchanged adapt costs nothing
+  lines: [],
+  rows: [],
+  closeOf: [],      // for a line that opens a block, the line that closes it
+  folded: new Set(),
+  hits: [],         // line indices matching the current query
+  hitIndex: -1,
+  query: "",
+};
+
+// computeFolds pairs each block-opening line with the line that closes it, by
+// brace depth. Only lines whose block spans more than one line are foldable.
+function computeFolds(lines) {
+  const closeOf = new Array(lines.length).fill(-1);
+  const stack = [];
+  for (let i = 0; i < lines.length; i++) {
+    // Pretty-printed JSON never puts a brace inside a string on its own line
+    // boundary, but strings can contain them, so strip strings first.
+    const bare = lines[i].replace(/"(?:\\.|[^"\\])*"/g, '""');
+    for (const ch of bare) {
+      if (ch === "{" || ch === "[") stack.push(i);
+      else if (ch === "}" || ch === "]") {
+        const open = stack.pop();
+        if (open !== undefined && open !== i) closeOf[open] = i;
+      }
+    }
+  }
+  return closeOf;
+}
+
+function jsonRow(i, line, foldable) {
+  const row = document.createElement("div");
+  row.className = "jl";
+  row.dataset.i = String(i);
+
+  const gutter = document.createElement(foldable ? "button" : "span");
+  gutter.className = "jl-fold";
+  if (foldable) {
+    gutter.textContent = "▾";
+    gutter.setAttribute("aria-label", `Collapse block starting at line ${i + 1}`);
+    gutter.setAttribute("aria-expanded", "true");
+  } else {
+    gutter.textContent = " ";
+    gutter.setAttribute("aria-hidden", "true");
+  }
+
+  const text = document.createElement("span");
+  text.className = "jl-text";
+  text.innerHTML = highlightJSON(line);
+
+  row.appendChild(gutter);
+  row.appendChild(text);
+  return row;
+}
+
+// applyFolds recomputes visibility in one pass. Folding is stored as a set of
+// opener line numbers, so nested folds compose without bookkeeping.
+function applyFolds() {
+  const { rows, closeOf, folded } = jsonView;
+  let i = 0;
+  while (i < rows.length) {
+    rows[i].hidden = false;
+    const gutter = rows[i].firstChild;
+    if (closeOf[i] > i) {
+      const isFolded = folded.has(i);
+      gutter.textContent = isFolded ? "▸" : "▾";
+      gutter.setAttribute("aria-expanded", isFolded ? "false" : "true");
+    }
+    if (folded.has(i) && closeOf[i] > i) {
+      for (let j = i + 1; j <= closeOf[i]; j++) rows[j].hidden = true;
+      i = closeOf[i] + 1;
+    } else {
+      i++;
+    }
+  }
+}
+
+function toggleFold(i) {
+  if (jsonView.folded.has(i)) jsonView.folded.delete(i);
+  else jsonView.folded.add(i);
+  applyFolds();
+}
+
+// renderJSONDoc paints text into the pane. Unchanged text is a no-op, which is
+// what keeps typing cheap: most keystrokes do not change the adapted output.
+function renderJSONDoc(text, { force } = {}) {
+  const host = $("json-preview");
+  if (!force && jsonView.text === text) return;
+
+  jsonView.text = text;
+  jsonView.lines = text ? text.split("\n") : [];
+  jsonView.closeOf = computeFolds(jsonView.lines);
+  jsonView.folded = new Set();
+  jsonView.rows = [];
+  jsonView.hits = [];
+  jsonView.hitIndex = -1;
+  host.innerHTML = "";
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < jsonView.lines.length; i++) {
+    const row = jsonRow(i, jsonView.lines[i], jsonView.closeOf[i] > i);
+    jsonView.rows.push(row);
+    frag.appendChild(row);
+  }
+  host.appendChild(frag);
+  if (jsonView.query) runJSONFind(jsonView.query);
+}
+
+// renderJSONMessage shows prose (an error, an empty state) instead of a document.
+function renderJSONMessage(html) {
+  jsonView.text = null;
+  jsonView.rows = [];
+  jsonView.hits = [];
+  jsonView.hitIndex = -1;
+  $("json-preview").innerHTML = `<div class="px-4 whitespace-pre-wrap">${html}</div>`;
+}
+
+// markMatches wraps query hits inside a row by walking text nodes, which keeps
+// the JSON token markup intact — string surgery on the HTML would not.
+function markMatches(row, query) {
+  const text = row.lastChild;
+  const needle = query.toLowerCase();
+  const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeValue.toLowerCase().includes(needle)) targets.push(n);
+  }
+  for (const node of targets) {
+    const frag = document.createDocumentFragment();
+    const value = node.nodeValue;
+    let at = 0;
+    for (;;) {
+      const hit = value.toLowerCase().indexOf(needle, at);
+      if (hit === -1) break;
+      if (hit > at) frag.appendChild(document.createTextNode(value.slice(at, hit)));
+      const mark = document.createElement("mark");
+      mark.textContent = value.slice(hit, hit + query.length);
+      frag.appendChild(mark);
+      at = hit + query.length;
+    }
+    if (at < value.length) frag.appendChild(document.createTextNode(value.slice(at)));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+function runJSONFind(query) {
+  jsonView.query = query;
+  const { rows, lines } = jsonView;
+
+  // Repaint every previously marked row from its source line.
+  for (const row of rows) row.lastChild.innerHTML = highlightJSON(lines[Number(row.dataset.i)]);
+  jsonView.hits = [];
+  jsonView.hitIndex = -1;
+
+  if (!query) {
+    $("json-find-count").textContent = "";
+    updateFindHighlight();
+    return;
+  }
+  const needle = query.toLowerCase();
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].toLowerCase().includes(needle)) {
+      jsonView.hits.push(i);
+      markMatches(rows[i], query);
+    }
+  }
+  $("json-find-count").textContent = jsonView.hits.length ? `1/${jsonView.hits.length}` : "no matches";
+  if (jsonView.hits.length) gotoHit(0);
+  else updateFindHighlight();
+}
+
+// gotoHit reveals a match, opening any folded blocks that contain it — a search
+// that silently skipped collapsed content would be worse than no search.
+function gotoHit(n) {
+  const { hits, rows, closeOf, folded } = jsonView;
+  if (!hits.length) return;
+  jsonView.hitIndex = (n + hits.length) % hits.length;
+  const line = hits[jsonView.hitIndex];
+
+  for (const opener of [...folded]) {
+    if (opener < line && line <= closeOf[opener]) folded.delete(opener);
+  }
+  applyFolds();
+  updateFindHighlight();
+  $("json-find-count").textContent = `${jsonView.hitIndex + 1}/${hits.length}`;
+  rows[line].scrollIntoView({ block: "center" });
+}
+
+function updateFindHighlight() {
+  for (const row of jsonView.rows) {
+    row.classList.remove("hit-current");
+    for (const m of row.getElementsByTagName("mark")) m.classList.remove("on");
+  }
+  if (jsonView.hitIndex < 0) return;
+  const row = jsonView.rows[jsonView.hits[jsonView.hitIndex]];
+  row.classList.add("hit-current");
+  for (const m of row.getElementsByTagName("mark")) m.classList.add("on");
+}
+
 // ---- JSON syntax highlighting for the preview pane ----
 function highlightJSON(json) {
   const esc = escapeHTML(json);
@@ -254,17 +459,16 @@ const state = {
   currentId: null,     // id of the loaded saved config, or null for a new unsaved draft
   savedContent: "",    // last-persisted content, to compute the dirty flag
   savedName: "",
-  lastJSON: "",        // last successful adapt output, for copy
   configs: [],
 };
 
 const editor = createEditor($("editor-host"));
 
-const STARTER = `# Welcome to Camer. Edit this Caddyfile and watch the JSON preview update.
-example.com {
+// A plain Caddyfile. Onboarding copy used to live here as a comment, which meant
+// every new draft carried "# Welcome to Camer" into production; the hint belongs
+// in the UI instead — see the empty state in renderPreview and firstRunHint.
+const STARTER = `example.com {
 \treverse_proxy localhost:8080
-
-\tencode gzip zstd
 }
 `;
 
@@ -435,6 +639,147 @@ function insertPattern(template) {
 function togglePatterns() { $("patterns-menu").classList.toggle("hidden"); }
 function closePatterns() { $("patterns-menu").classList.add("hidden"); }
 
+// ---- JSON pane ----
+// The pane used to show three different documents behind one label, and the
+// running config silently vanished on the next keystroke. Each view now has its
+// own slot and its own tab, and the mode only changes when the user asks.
+const preview = {
+  mode: "adapted",
+  adapted: { json: "", warnings: [], error: null },
+  running: { json: "", error: null, fetchedAt: null, loaded: false },
+  compare: { diff: null, error: null, loaded: false },
+};
+
+const PREVIEW_MODES = ["adapted", "running", "compare"];
+
+function setPreviewMode(mode) {
+  preview.mode = mode;
+  for (const m of PREVIEW_MODES) {
+    const btn = $("mode-" + m);
+    const on = m === mode;
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+    btn.className = "text-[13px] font-medium px-2.5 py-1 rounded-lg border transition-colors " +
+      (on ? "border-primary text-primary bg-primary/10"
+          : "border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline");
+  }
+  // Fetch only when the view is actually asked for.
+  if (mode === "running" && !preview.running.loaded) { pullCurrent(); return; }
+  if (mode === "compare" && !preview.compare.loaded) { runCompare(); return; }
+  renderPreview();
+}
+
+function renderPreview() {
+  const note = $("mode-note");
+  $("json-tools").classList.toggle("hidden", preview.mode === "compare");
+  $("json-scroll").classList.toggle("hidden", preview.mode === "compare");
+  $("compare-body").classList.toggle("hidden", preview.mode !== "compare");
+  $("warnings").classList.add("hidden");
+  note.classList.add("hidden");
+
+  if (preview.mode === "adapted") {
+    const a = preview.adapted;
+    if (a.error) {
+      const unreachable = a.error.kind === "unreachable";
+      setPreviewStatus(unreachable ? "cannot reach Caddy" : "invalid", unreachable ? "text-tertiary" : "text-error");
+      renderJSONMessage(unreachable
+        ? `<span class="text-tertiary">${escapeHTML(a.error.message)}</span>` +
+          `<span class="text-on-surface-variant">\n\nThe Caddyfile has not been checked — adapting needs a reachable ` +
+          `admin API. Fix the endpoint below and this will retry.</span>`
+        : `<span class="text-error">${escapeHTML(a.error.message)}</span>`);
+    } else if (!a.json) {
+      // The empty state carries the onboarding that used to be a comment inside
+      // every new Caddyfile.
+      setPreviewStatus("empty");
+      renderJSONMessage(
+        `<span class="text-on-surface-variant">Write a Caddyfile on the left and its adapted JSON appears here, ` +
+        `checked by Caddy as you type.\n\nNothing reaches the server until you press “Apply to Caddy”. ` +
+        `Use “Patterns” for a starting point, or “Compare” to see how your draft differs from what is running.</span>`);
+    } else {
+      setPreviewStatus("valid", "text-success");
+      renderJSONDoc(a.json);
+      renderWarnings(a.warnings);
+    }
+    return;
+  }
+
+  if (preview.mode === "running") {
+    const r = preview.running;
+    note.classList.remove("hidden");
+    note.textContent = "What Caddy is serving right now. Editing the Caddyfile does not change this view — use Pull Running to refresh it.";
+    if (r.error) {
+      setPreviewStatus("unavailable", "text-error");
+      renderJSONMessage(`<span class="text-error">${escapeHTML(r.error)}</span>`);
+      return;
+    }
+    setPreviewStatus(r.fetchedAt ? `fetched ${relTime(r.fetchedAt)}` : "", "text-primary");
+    renderJSONDoc(r.json);
+    return;
+  }
+
+  const c = preview.compare;
+  note.classList.remove("hidden");
+  note.textContent = "Your adapted JSON compared with the running config. Both sides are key-sorted, so only real differences show.";
+  if (c.error) {
+    setPreviewStatus("unavailable", "text-error");
+    $("compare-body").innerHTML = `<div class="p-8 text-center text-[13px] font-body text-error whitespace-pre-wrap">${escapeHTML(c.error)}</div>`;
+    return;
+  }
+  if (!c.diff) {
+    setPreviewStatus("comparing…", "text-primary");
+    $("compare-body").innerHTML = `<div class="p-8 text-center text-[13px] font-body text-on-surface-variant">Comparing…</div>`;
+    return;
+  }
+  setPreviewStatus(c.diff.identical ? "no differences" : `+${c.diff.added} −${c.diff.removed}`,
+                   c.diff.identical ? "text-success" : "text-primary");
+  renderDiff(c.diff, $("compare-body"), {
+    identicalMessage: "No differences — applying this would leave Caddy's configuration exactly as it is.",
+  });
+}
+
+// currentJSON is whatever document the pane is showing, which is what Copy
+// should copy.
+function currentJSON() {
+  if (preview.mode === "running") return preview.running.json;
+  if (preview.mode === "adapted") return preview.adapted.json;
+  return "";
+}
+
+let compareSeq = 0;
+
+async function runCompare() {
+  const caddyfile = editor.getValue();
+  const endpoint = $("endpoint").value.trim();
+  const seq = ++compareSeq;
+
+  preview.compare = { diff: null, error: null, loaded: true };
+  if (!caddyfile.trim()) {
+    preview.compare.error = "The editor is empty — there is nothing to compare.";
+    renderPreview();
+    return;
+  }
+  renderPreview();
+
+  try {
+    const res = await api("POST", "/api/compare", { caddyfile, endpoint });
+    if (seq !== compareSeq) return;
+    preview.compare = { diff: res.diff, error: null, loaded: true };
+    setEndpointReachable(true);
+  } catch (e) {
+    if (seq !== compareSeq) return;
+    preview.compare = {
+      diff: null,
+      loaded: true,
+      error: e.kind === "unreachable"
+        ? `Cannot compare — ${e.message}`
+        : e.kind === "invalid"
+        ? `The Caddyfile does not adapt, so there is nothing to compare with:\n\n${e.message}`
+        : e.message,
+    };
+    setEndpointReachable(e.kind !== "unreachable", e.message);
+  }
+  renderPreview();
+}
+
 // ---- adapt (JSON preview), debounced ----
 let adaptTimer = null;
 let adaptSeq = 0;
@@ -445,40 +790,46 @@ function setPreviewStatus(text, cls) {
   el.className = "font-label text-[12px] " + (cls || "text-on-surface-variant");
 }
 
+
 function scheduleAdapt(immediate) {
   clearTimeout(adaptTimer);
   adaptTimer = setTimeout(runAdapt, immediate ? 0 : 500);
 }
 
+// runAdapt refreshes the adapted slot. It always runs — validity and warnings
+// are wanted whichever tab is showing — but it only repaints when the adapted
+// tab is the one on screen.
 async function runAdapt() {
   const caddyfile = editor.getValue();
   const endpoint = $("endpoint").value.trim();
+
   if (!caddyfile.trim()) {
-    $("json-preview").innerHTML = "";
-    $("warnings").classList.add("hidden");
-    setPreviewStatus("empty", "text-on-surface-variant");
-    state.lastJSON = "";
+    preview.adapted = { json: "", warnings: [], error: null };
+    if (preview.mode === "adapted") renderPreview();
     return;
   }
+
   const seq = ++adaptSeq;
-  setPreviewStatus("adapting…", "text-primary");
+  if (preview.mode === "adapted") setPreviewStatus("adapting…", "text-primary");
   $("sync-icon").classList.add("animate-spin");
   try {
     const res = await api("POST", "/api/adapt", { caddyfile, endpoint });
     if (seq !== adaptSeq) return; // a newer request superseded this one
-    state.lastJSON = res.json;
-    $("json-preview").innerHTML = highlightJSON(res.json);
-    renderWarnings(res.warnings);
-    setPreviewStatus("valid", "text-success");
+    preview.adapted = { json: res.json, warnings: res.warnings || [], error: null };
+    setEndpointReachable(true);
   } catch (e) {
     if (seq !== adaptSeq) return;
-    state.lastJSON = "";
-    $("json-preview").innerHTML = `<span class="text-error">${escapeHTML(e.message)}</span>`;
-    $("warnings").classList.add("hidden");
-    setPreviewStatus("invalid", "text-error");
+    // An unreachable endpoint says nothing about the Caddyfile; renderPreview
+    // keeps the two apart.
+    preview.adapted = { json: "", warnings: [], error: { kind: e.kind, message: e.message } };
+    setEndpointReachable(e.kind !== "unreachable", e.message);
   } finally {
     if (seq === adaptSeq) $("sync-icon").classList.remove("animate-spin");
   }
+
+  if (preview.mode === "adapted") renderPreview();
+  // Compare is derived from the editor, so keep it live while it is on screen.
+  else if (preview.mode === "compare") runCompare();
 }
 
 function renderWarnings(warnings) {
@@ -518,26 +869,32 @@ async function submitToCaddy() {
   }
 }
 
+// pullCurrent fills the Running slot. The result now persists across editing
+// instead of being wiped by the next adapt.
 async function pullCurrent() {
   const endpoint = $("endpoint").value.trim();
-  setStatus("Fetching…", "bg-tertiary animate-pulse");
+  setPreviewStatus("fetching…", "text-primary");
   try {
     const res = await api("POST", "/api/current", { endpoint });
-    state.lastJSON = res.json;
-    $("json-preview").innerHTML = highlightJSON(res.json);
-    $("warnings").classList.add("hidden");
-    setPreviewStatus("running config", "text-primary");
-    setStatus("Ready", "bg-primary");
-    toast("Loaded the running config from Caddy into the preview.", "success");
+    preview.running = { json: res.json, error: null, fetchedAt: new Date().toISOString(), loaded: true };
+    setEndpointReachable(true);
   } catch (e) {
-    setStatus("Ready", "bg-primary");
-    toast("Could not fetch current config: " + e.message, "error");
+    preview.running = { json: "", error: e.message, fetchedAt: null, loaded: true };
+    setEndpointReachable(e.kind !== "unreachable", e.message);
+    toast("Could not fetch the running config: " + e.message, "error");
   }
+  setPreviewMode("running");
 }
 
 async function copyJSON() {
-  if (!state.lastJSON) { toast("No valid JSON to copy.", "error"); return; }
-  try { await navigator.clipboard.writeText(state.lastJSON); toast("JSON copied to clipboard.", "success"); }
+  const json = currentJSON();
+  if (!json) {
+    toast(preview.mode === "compare"
+      ? "Compare shows a diff, not a document — switch to Adapted or Running to copy JSON."
+      : "No JSON to copy.", "error");
+    return;
+  }
+  try { await navigator.clipboard.writeText(json); toast("JSON copied to clipboard.", "success"); }
   catch { toast("Clipboard blocked by browser.", "error"); }
 }
 
