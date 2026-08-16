@@ -147,6 +147,32 @@ func (c *CaddyClient) CurrentConfig(ctx context.Context, endpoint string) (json.
 	return json.RawMessage(body), nil
 }
 
+// Probe reports whether a Caddy admin API answers at endpoint.
+//
+// It asks for /config/ and only looks at the status line, discarding the body
+// unread. Narrower paths are tempting but wrong: /config/admin/listen answers
+// 400 "invalid traversal path" on a Caddy whose config has no explicit admin
+// block, which would report a perfectly healthy server as unreachable. /config/
+// is 200 for any running Caddy.
+func (c *CaddyClient) Probe(ctx context.Context, endpoint string) error {
+	base := normalizeBase(endpoint)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/config/", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return &TransportError{Base: base, Err: err}
+	}
+	// The body can be the entire config; the status line is all we need.
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("%s", apiError(body, resp.StatusCode))
+	}
+	return nil
+}
+
 // apiError extracts a human-readable message from a Caddy admin error body,
 // which is typically {"error":"..."}.
 func apiError(body []byte, status int) string {

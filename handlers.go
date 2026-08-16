@@ -33,6 +33,7 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 	api.HandleFunc("GET /api/deploys/latest", s.handleLatestDeploy)
 	api.HandleFunc("GET /api/deploys/{id}", s.handleGetDeploy)
 
+	api.HandleFunc("GET /api/endpoint", s.handleResolveEndpoint)
 	api.HandleFunc("POST /api/adapt", s.handleAdapt)
 	api.HandleFunc("POST /api/load", s.handleLoad)
 	api.HandleFunc("POST /api/current", s.handleCurrent)
@@ -256,6 +257,31 @@ func (s *Server) handleGetDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- Caddy admin proxy ----
+
+// handleResolveEndpoint reports the base URL Camer will actually call for a
+// given endpoint string. normalizeBase silently rewrites pasted /load, /adapt
+// and /config URLs, so the UI needs a way to show the effective target rather
+// than duplicating those rules in JavaScript and drifting from them.
+//
+// With ?probe=1 it also reports whether a Caddy admin API answers there, which
+// is what lets the UI say "unreachable" beside the field before the user has
+// tried to apply anything.
+func (s *Server) handleResolveEndpoint(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("url")
+	out := map[string]any{"base": normalizeBase(raw)}
+
+	if r.URL.Query().Get("probe") != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := s.caddy.Probe(ctx, raw); err != nil {
+			out["reachable"] = false
+			out["error"] = err.Error()
+		} else {
+			out["reachable"] = true
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
 
 func (s *Server) handleAdapt(w http.ResponseWriter, r *http.Request) {
 	var in struct {
