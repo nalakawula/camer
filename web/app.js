@@ -912,9 +912,15 @@ function setPreviewMode(mode) {
       (on ? "border-primary text-primary bg-primary/10"
           : "border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline");
   }
-  // Fetch only when the view is actually asked for.
+  // Running is a snapshot the user asked for, so it loads once and then survives
+  // editing — that is the whole point of the tab. Compare is the opposite: it is
+  // derived from the editor, the endpoint *and* what the server is running right
+  // now, so opening it always recomputes. Caching it behind a one-shot `loaded`
+  // flag meant a comparison that had failed once — against a Caddyfile since
+  // fixed, or an endpoint since corrected — was shown for the rest of the
+  // session, contradicting the Adapted tab right next to it.
   if (mode === "running" && !preview.running.loaded) { pullCurrent(); return; }
-  if (mode === "compare" && !preview.compare.loaded) { runCompare(); return; }
+  if (mode === "compare") { runCompare(); return; }
   renderPreview();
 }
 
@@ -996,12 +1002,30 @@ function currentJSON() {
 
 let compareSeq = 0;
 
+// compareKeyOf identifies the inputs a comparison was computed from. A cached
+// result — a diff or an error — only describes those inputs, so the moment
+// either changes the cache is worthless.
+const compareKeyOf = (endpoint, caddyfile) => `${endpoint} ${caddyfile}`;
+
+// refreshCompareIfStale re-runs the comparison when the editor or the endpoint
+// has moved since the cached one. Called from the adapt path, which already
+// fires on every edit, so an error left on screen clears itself as soon as the
+// Caddyfile that caused it is fixed.
+function refreshCompareIfStale() {
+  if (preview.compare.key !== compareKeyOf($("endpoint").value.trim(), editor.getValue())) {
+    runCompare();
+  }
+}
+
 async function runCompare() {
   const caddyfile = editor.getValue();
   const endpoint = $("endpoint").value.trim();
   const seq = ++compareSeq;
+  // Stamped on every state this function writes, so the cache always says which
+  // inputs it belongs to — including the failure states.
+  const key = compareKeyOf(endpoint, caddyfile);
 
-  preview.compare = { diff: null, error: null, loaded: true };
+  preview.compare = { diff: null, error: null, loaded: true, key };
   if (!caddyfile.trim()) {
     preview.compare.error = "The editor is empty — there is nothing to compare.";
     renderPreview();
@@ -1012,13 +1036,14 @@ async function runCompare() {
   try {
     const res = await api("POST", "/api/compare", { caddyfile, endpoint });
     if (seq !== compareSeq) return;
-    preview.compare = { diff: res.diff, error: null, loaded: true };
+    preview.compare = { diff: res.diff, error: null, loaded: true, key };
     setEndpointReachable(true);
   } catch (e) {
     if (seq !== compareSeq) return;
     preview.compare = {
       diff: null,
       loaded: true,
+      key,
       error: e.kind === "unreachable"
         ? `Cannot compare — ${e.message}`
         : e.kind === "invalid"
@@ -1056,6 +1081,9 @@ async function runAdapt() {
   if (!caddyfile.trim()) {
     preview.adapted = { json: "", warnings: [], error: null };
     if (preview.mode === "adapted") renderPreview();
+    // Emptying the editor is a change like any other: Compare must not keep
+    // showing a result for text that is no longer there.
+    else if (preview.mode === "compare") refreshCompareIfStale();
     return;
   }
 
@@ -1078,8 +1106,10 @@ async function runAdapt() {
   }
 
   if (preview.mode === "adapted") renderPreview();
-  // Compare is derived from the editor, so keep it live while it is on screen.
-  else if (preview.mode === "compare") runCompare();
+  // Compare is derived from the editor, so keep it live while it is on screen —
+  // but only when something it depends on actually moved, since adapt also runs
+  // for reasons that leave the comparison's inputs untouched.
+  else if (preview.mode === "compare") refreshCompareIfStale();
 }
 
 function renderWarnings(warnings) {

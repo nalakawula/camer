@@ -70,6 +70,7 @@ P2 quality and accessibility · P3 polish
 | CAM-31 | P3 | Bracket matching and auto-close in the editor | [x] |
 | CAM-32 | P3 | Track the test files in git | [ ] |
 | CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [x] |
+| CAM-34 | P1 | Compare tab serves a stale result after the Caddyfile changes | [x] |
 
 ---
 
@@ -1043,6 +1044,49 @@ configured value (`surface-container-low` → `rgb(19,27,46)`, `w-sidebar-width`
 `primary` → `rgb(173,198,255)`, `container-padding` → 24px, `rounded-xl` → 8px), the console
 is clean apart from the pre-existing favicon 404, and the 375px layout still reports zero
 overflowing elements.
+
+---
+
+### CAM-34 — Compare tab serves a stale result after the Caddyfile changes
+`[x]` · P1 · Depends on: CAM-15 · Files: `web/app.js`
+
+**Problem.** Reported from real use: Compare kept showing
+
+> The Caddyfile does not adapt, so there is nothing to compare with:
+> adapting config using caddyfile adapter: … module not registered: dns.providers.aaa
+
+for a Caddyfile that had since been fixed and that the Adapted tab, one tab over, was
+rendering as valid JSON.
+
+`preview.compare.loaded` was a one-shot flag: `setPreviewMode` fetched only
+`if (!preview.compare.loaded)`, so the *first* comparison of a session was cached forever —
+errors included. Fix the Caddyfile on the Adapted tab, click back to Compare, and the
+failure from three edits ago was still on screen. The same flag made a corrected endpoint
+invisible to the tab.
+
+Two narrower paths had the same shape: emptying the editor returned early from `runAdapt`
+before the compare refresh, and `runAdapt` re-ran the comparison unconditionally while the
+tab was open, including for adapts whose inputs it did not depend on.
+
+**Done when**
+- Opening Compare reflects the current editor and endpoint, never an earlier session state.
+- An error clears as soon as the input that caused it is fixed, whether or not the tab was
+  on screen at the time.
+- Emptying the editor is treated as a change like any other.
+
+**Result.** Cache validity is now explicit instead of a boolean: `compareKeyOf(endpoint,
+caddyfile)` stamps every state `runCompare` writes — success *and* failure — and
+`refreshCompareIfStale()` recomputes when the current inputs no longer match the stamp.
+Selecting the tab always recomputes, because Compare also depends on what the server is
+running, which can change without any local edit; Running deliberately keeps its one-shot
+`loaded` behaviour, since that tab is a snapshot the user asked for (CAM-14).
+
+Verified by A/B in a browser against a live Caddy, driving the real UI: on the pre-fix
+binary, breaking the Caddyfile → opening Compare → fixing it on the Adapted tab (status
+`valid`) → returning to Compare still showed `unexpected EOF`. On the fixed binary the same
+sequence yields `+4 −68` with the new host in the diff. Also confirmed live-updating while
+the tab stays open (edit → diff follows, no stale host), error-then-recovery in place, and
+that emptying the editor now reads "The editor is empty — there is nothing to compare."
 
 ---
 
