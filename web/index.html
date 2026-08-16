@@ -225,17 +225,26 @@
   <!-- Footer / submit -->
   <div class="h-24 bg-surface-container border-t border-outline-variant fixed bottom-0 right-0 left-sidebar-width flex items-center px-container-padding justify-between z-30 gap-6">
     <div class="flex items-end gap-6 flex-1 min-w-0">
-      <div class="flex flex-col min-w-0">
-        <label class="font-label text-[12px] tracking-wider text-on-surface-variant uppercase mb-1">Admin API Endpoint</label>
-        <div class="relative w-96 max-w-full">
-          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">api</span>
-          <input id="endpoint" type="text" value="http://localhost:2019"
-            class="bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-4 py-2 text-[14px] text-on-surface focus:outline-none focus:border-primary w-full font-code transition-colors" />
+      <div id="endpoint-wrap" class="flex flex-col min-w-0">
+        <div class="flex items-center gap-3">
+          <label for="endpoint" class="font-label text-[12px] tracking-wider text-on-surface-variant uppercase">Admin API Endpoint</label>
+          <!-- Reachability lives here, next to the field that causes it, so an
+               unreachable endpoint is never reported as an invalid Caddyfile. -->
+          <span id="endpoint-status" class="hidden font-label text-[11px] flex items-center gap-1">
+            <span id="endpoint-status-icon" class="material-symbols-outlined text-[14px]" aria-hidden="true">cloud_off</span>
+            <span id="endpoint-status-text">unreachable</span>
+          </span>
         </div>
-      </div>
-      <div class="flex items-center gap-2 pb-2.5 shrink-0">
-        <span id="status-dot" class="w-2 h-2 rounded-full bg-primary block"></span>
-        <span id="status-text" class="text-on-surface-variant text-[13px]">Ready</span>
+        <div class="relative w-96 max-w-full mt-0.5">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]" aria-hidden="true">api</span>
+          <input id="endpoint" type="text" value="http://localhost:2019"
+            aria-describedby="endpoint-help"
+            title="Used for the live JSON preview and for applying — both go through this admin API."
+            class="bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-4 py-1.5 text-[14px] text-on-surface focus:outline-none focus:border-primary w-full font-code transition-colors" />
+        </div>
+        <p id="endpoint-help" class="text-[11px] text-on-surface-variant mt-1 truncate w-96 max-w-full">
+          Drives the live preview <em>and</em> apply.
+        </p>
       </div>
     </div>
     <div class="flex items-center gap-3 shrink-0">

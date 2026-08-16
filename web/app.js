@@ -193,6 +193,10 @@ const api = async (method, path, body) => {
   if (!res.ok) {
     const err = new Error((data && data.error) || `HTTP ${res.status}`);
     err.status = res.status;
+    // kind lets callers tell "Caddy is unreachable" apart from "the config is
+    // wrong" — see writeCaddyError in handlers.go.
+    err.kind = data && data.kind;
+    err.endpoint = data && data.endpoint;
     throw err;
   }
   return data;
@@ -552,7 +556,77 @@ function loadEndpoint() {
   const saved = localStorage.getItem("camer.endpoint");
   if (saved) $("endpoint").value = saved;
 }
-$("endpoint").addEventListener("change", () => localStorage.setItem("camer.endpoint", $("endpoint").value.trim()));
+
+let endpointTimer = null;
+let probeSeq = 0;
+
+// setEndpointStatus renders one of: reachable, unreachable, checking.
+function setEndpointStatus(kind, message) {
+  const box = $("endpoint-status");
+  const icon = $("endpoint-status-icon");
+  const text = $("endpoint-status-text");
+  const cls = { ok: "text-success", checking: "text-on-surface-variant", bad: "text-tertiary" }[kind];
+
+  box.classList.remove("hidden");
+  box.className = `font-label text-[11px] flex items-center gap-1 ${cls}`;
+  if (kind === "checking") {
+    icon.textContent = "sync";
+    text.textContent = "checking…";
+    box.title = "Checking whether a Caddy admin API answers at this address.";
+  } else if (kind === "ok") {
+    icon.textContent = "cloud_done";
+    text.textContent = "reachable";
+    box.title = "A Caddy admin API answered at this address.";
+  } else {
+    icon.textContent = "cloud_off";
+    text.textContent = "unreachable";
+    box.title = message || "Camer could not reach a Caddy admin API at this address.";
+  }
+}
+
+// Kept as the name the adapt/apply paths already call: they only ever know
+// whether the last real request got through.
+function setEndpointReachable(ok, message) {
+  setEndpointStatus(ok ? "ok" : "bad", message);
+}
+
+// showEffectiveBase surfaces normalizeBase's rewriting — pasting a /load or
+// /config URL silently changes the target, which was documented only in the
+// README.
+function showEffectiveBase(raw, base) {
+  const help = $("endpoint-help");
+  const rewritten = base && base !== raw.replace(/\/+$/, "");
+  help.innerHTML = rewritten
+    ? `Drives the live preview <em>and</em> apply · calls <span class="font-code text-on-surface">${escapeHTML(base)}</span>`
+    : `Drives the live preview <em>and</em> apply.`;
+  help.title = base ? `Camer will call ${base}/adapt and ${base}/load.` : "";
+}
+
+// probeEndpoint checks reachability up front, so a wrong address is visible
+// before the user has tried to apply anything.
+async function probeEndpoint() {
+  const raw = $("endpoint").value.trim();
+  const seq = ++probeSeq;
+  setEndpointStatus("checking");
+  try {
+    const res = await api("GET", `/api/endpoint?url=${encodeURIComponent(raw)}&probe=1`);
+    if (seq !== probeSeq) return; // superseded by a newer edit
+    showEffectiveBase(raw, res.base);
+    setEndpointStatus(res.reachable ? "ok" : "bad", res.error);
+  } catch (e) {
+    if (seq !== probeSeq) return;
+    setEndpointStatus("bad", e.message);
+  }
+}
+
+$("endpoint").addEventListener("input", () => {
+  clearTimeout(endpointTimer);
+  endpointTimer = setTimeout(() => {
+    localStorage.setItem("camer.endpoint", $("endpoint").value.trim());
+    probeEndpoint();
+    scheduleAdapt(true); // the preview is computed through this endpoint
+  }, 500);
+});
 
 // ---- config list (sidebar) ----
 async function loadConfigList() {
