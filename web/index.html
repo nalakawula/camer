@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Camer · Caddyfile Manager</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/simple.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: { extend: {
+      colors: {
+        "on-primary-container":"#00285d","on-background":"#dae2fd","on-primary-fixed-variant":"#004395",
+        "surface-container-low":"#131b2e","on-secondary-fixed-variant":"#2f2ebe","on-tertiary-fixed":"#311400",
+        "error-container":"#93000a","inverse-surface":"#dae2fd","secondary-container":"#3131c0","on-primary":"#002e6a",
+        "surface-variant":"#2d3449","surface-tint":"#adc6ff","surface-container-lowest":"#060e20","tertiary":"#ffb786",
+        "surface-container":"#171f33","primary-fixed":"#d8e2ff","on-secondary-fixed":"#07006c","on-tertiary-container":"#461f00",
+        "surface":"#0b1326","on-error":"#690005","on-primary-fixed":"#001a42","surface-dim":"#0b1326",
+        "surface-container-high":"#222a3d","on-tertiary-fixed-variant":"#723600","background":"#0b1326","on-tertiary":"#502400",
+        "on-secondary-container":"#b0b2ff","primary":"#adc6ff","secondary-fixed":"#e1e0ff","tertiary-fixed":"#ffdcc6",
+        "on-surface":"#dae2fd","primary-fixed-dim":"#adc6ff","outline-variant":"#424754","outline":"#8c909f",
+        "secondary-fixed-dim":"#c0c1ff","tertiary-container":"#df7412","secondary":"#c0c1ff","on-secondary":"#1000a9",
+        "on-surface-variant":"#c2c6d6","error":"#ffb4ab","surface-bright":"#31394d","inverse-primary":"#005ac2",
+        "tertiary-fixed-dim":"#ffb786","inverse-on-surface":"#283044","primary-container":"#4d8eff",
+        "surface-container-highest":"#2d3449","on-error-container":"#ffdad6","success":"#8fd98f"
+      },
+      borderRadius:{ "DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"9999px" },
+      spacing:{ "gutter":"16px","stack-gap":"12px","sidebar-width":"260px","container-padding":"24px","unit":"4px" },
+      fontFamily:{ "display":["Geist","sans-serif"],"body":["Inter","sans-serif"],"code":["JetBrains Mono","monospace"],"label":["JetBrains Mono","monospace"] },
+    }},
+  }
+</script>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; }
+  .CodeMirror { height:100%; background:#060e20; color:#dae2fd; font-family:"JetBrains Mono",monospace; font-size:14px; line-height:1.7; }
+  .CodeMirror-gutters { border-right:1px solid #424754; background:#060e20; }
+  .CodeMirror-linenumber { padding:0 12px 0 8px; color:#8c909f; }
+  .CodeMirror-cursor { border-left:1px solid #adc6ff; }
+  .CodeMirror-selected { background:rgba(173,198,255,0.15)!important; }
+  .CodeMirror-activeline-background { background:rgba(173,198,255,0.05); }
+  .cm-s-default .cm-keyword { color:#ffb786; }        /* directives */
+  .cm-s-default .cm-def { color:#adc6ff; }             /* site addresses */
+  .cm-s-default .cm-string { color:#dae2fd; }
+  .cm-s-default .cm-number { color:#ffb4ab; }
+  .cm-s-default .cm-variable-2 { color:#c0c1ff; }      /* placeholders / matchers */
+  .cm-s-default .cm-comment { color:#8c909f; font-style:italic; }
+  .cm-s-default .cm-bracket { color:#8c909f; }
+  /* JSON preview highlight */
+  .j-key{color:#c0c1ff;} .j-str{color:#ffb786;} .j-num{color:#ffb4ab;} .j-bool{color:#adc6ff;} .j-null{color:#8c909f;} .j-punc{color:#8c909f;}
+  ::-webkit-scrollbar{width:10px;height:10px;} ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#2d3449;border-radius:9999px;border:2px solid #0b1326;}
+  ::-webkit-scrollbar-thumb:hover{background:#424754;}
+  @keyframes toastin{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+  .toast{animation:toastin .18s ease-out;}
+</style>
+</head>
+<body class="bg-background text-on-surface font-body antialiased h-screen flex overflow-hidden text-[14px]">
+
+<!-- Sidebar -->
+<nav class="bg-surface-container-low w-sidebar-width h-full fixed left-0 top-0 border-r border-outline-variant flex flex-col p-gutter z-50">
+  <div class="flex items-center gap-3 mb-8">
+    <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center shrink-0">
+      <span class="material-symbols-outlined text-on-primary-container">dns</span>
+    </div>
+    <div class="flex flex-col">
+      <span class="font-display text-[18px] font-bold text-on-surface leading-tight">Camer</span>
+      <span class="text-on-surface-variant text-[12px]">Caddyfile Manager</span>
+    </div>
+  </div>
+
+  <button id="btn-new" class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2 px-4 rounded-lg mb-6 flex items-center justify-center gap-2 transition-colors w-full active:scale-95 duration-150">
+    <span class="material-symbols-outlined text-[18px]">add</span> New Caddyfile
+  </button>
+
+  <div class="flex items-center justify-between px-1 mb-2">
+    <span class="font-label text-[12px] tracking-wider text-on-surface-variant uppercase">Saved Configs</span>
+    <button id="btn-refresh-list" title="Reload list" class="text-on-surface-variant hover:text-primary transition-colors">
+      <span class="material-symbols-outlined text-[18px]">refresh</span>
+    </button>
+  </div>
+  <div id="config-list" class="flex flex-col gap-1 flex-1 overflow-y-auto -mx-1 px-1"></div>
+
+  <div class="flex flex-col gap-1 mt-auto pt-4 border-t border-outline-variant">
+    <div class="flex items-center gap-3 px-3 py-2 text-on-surface-variant text-[12px]">
+      <span class="material-symbols-outlined text-[18px]">bolt</span>
+      <span>Go · SQLite · no CGO</span>
+    </div>
+  </div>
+</nav>
+
+<!-- Main -->
+<div class="flex-1 ml-[260px] flex flex-col h-full relative">
+  <!-- Top bar -->
+  <header class="bg-surface h-16 fixed top-0 right-0 left-sidebar-width z-40 border-b border-outline-variant flex justify-between items-center px-container-padding">
+    <div class="flex items-center gap-4 min-w-0">
+      <span class="font-display text-[22px] font-semibold text-primary shrink-0">Configuration Editor</span>
+      <div class="flex items-center gap-2 min-w-0 border-l border-outline-variant pl-4">
+        <span class="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">edit_document</span>
+        <input id="config-name" placeholder="Untitled Caddyfile"
+          class="bg-transparent border-b border-transparent hover:border-outline-variant focus:border-primary focus:outline-none text-on-surface font-display text-[16px] py-1 min-w-0 w-64 transition-colors" />
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="dirty-badge" class="hidden font-label text-[12px] text-tertiary bg-tertiary-container/20 px-2 py-1 rounded">UNSAVED</span>
+      <button id="btn-save" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-4 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">save</span> Save Draft
+      </button>
+      <button id="btn-delete" title="Delete this config" class="border border-outline-variant hover:border-error text-on-surface-variant hover:text-error font-medium p-1.5 rounded-lg transition-colors active:scale-95 duration-150 flex items-center">
+        <span class="material-symbols-outlined text-[18px]">delete</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Workspace -->
+  <main class="flex-1 mt-16 p-container-padding flex gap-container-padding overflow-hidden mb-24">
+    <!-- Editor -->
+    <div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
+      <div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
+        <span class="font-display font-medium text-on-surface flex items-center gap-2">
+          <span class="material-symbols-outlined text-[16px] text-primary">description</span> Caddyfile Editor
+        </span>
+        <span class="font-label text-[12px] text-on-surface-variant bg-surface-variant px-2 py-1 rounded">DRAFT</span>
+      </div>
+      <div class="flex-1 overflow-hidden"><textarea id="editor"></textarea></div>
+    </div>
+
+    <!-- Sync indicator -->
+    <div class="flex flex-col justify-center items-center shrink-0">
+      <div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center border border-outline-variant relative">
+        <span id="sync-icon" class="material-symbols-outlined text-primary text-[18px]">sync_alt</span>
+      </div>
+    </div>
+
+    <!-- JSON preview -->
+    <div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden min-w-0">
+      <div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
+        <span class="font-display font-medium text-on-surface flex items-center gap-2">
+          <span class="material-symbols-outlined text-[16px] text-tertiary">data_object</span> JSON Preview
+        </span>
+        <div class="flex items-center gap-3">
+          <span id="preview-status" class="font-label text-[12px] text-on-surface-variant"></span>
+          <button id="btn-copy" title="Copy JSON" class="text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[18px]">content_copy</span>
+          </button>
+        </div>
+      </div>
+      <div id="warnings" class="hidden shrink-0 max-h-40 overflow-y-auto border-b border-outline-variant bg-tertiary-container/10 px-4 py-2 text-[13px] text-tertiary-fixed-dim font-code"></div>
+      <div class="flex-1 overflow-auto bg-surface-container-lowest p-4">
+        <pre class="font-code text-[14px] leading-[1.7]"><code id="json-preview" class="text-on-surface"></code></pre>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer / submit -->
+  <div class="h-24 bg-surface-container border-t border-outline-variant fixed bottom-0 right-0 left-sidebar-width flex items-center px-container-padding justify-between z-30 gap-6">
+    <div class="flex items-end gap-6 flex-1 min-w-0">
+      <div class="flex flex-col min-w-0">
+        <label class="font-label text-[12px] tracking-wider text-on-surface-variant uppercase mb-1">Admin API Endpoint</label>
+        <div class="relative w-96 max-w-full">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">api</span>
+          <input id="endpoint" type="text" value="http://localhost:2019"
+            class="bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-4 py-2 text-[14px] text-on-surface focus:outline-none focus:border-primary w-full font-code transition-colors" />
+        </div>
+      </div>
+      <div class="flex items-center gap-2 pb-2.5 shrink-0">
+        <span id="status-dot" class="w-2 h-2 rounded-full bg-primary block"></span>
+        <span id="status-text" class="text-on-surface-variant text-[13px]">Ready</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <button id="btn-fetch" title="Pull the running config from Caddy" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-2.5 px-4 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">cloud_download</span> Pull Current
+      </button>
+      <button id="btn-submit" class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2.5 px-6 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 shadow-[0_4px_14px_0_rgba(173,198,255,0.15)] disabled:opacity-50 disabled:cursor-not-allowed">
+        <span class="material-symbols-outlined">send</span> Submit to Admin API
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toasts" class="fixed bottom-28 right-6 z-[100] flex flex-col gap-2 items-end"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

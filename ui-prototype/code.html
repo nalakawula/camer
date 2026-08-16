@@ -1,0 +1,380 @@
+<!DOCTYPE html><html class="dark" lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Caddy Manager - Configuration Editor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-primary-container": "#00285d",
+                      "on-background": "#dae2fd",
+                      "on-primary-fixed-variant": "#004395",
+                      "surface-container-low": "#131b2e",
+                      "on-secondary-fixed-variant": "#2f2ebe",
+                      "on-tertiary-fixed": "#311400",
+                      "error-container": "#93000a",
+                      "inverse-surface": "#dae2fd",
+                      "secondary-container": "#3131c0",
+                      "on-primary": "#002e6a",
+                      "surface-variant": "#2d3449",
+                      "surface-tint": "#adc6ff",
+                      "surface-container-lowest": "#060e20",
+                      "tertiary": "#ffb786",
+                      "surface-container": "#171f33",
+                      "primary-fixed": "#d8e2ff",
+                      "on-secondary-fixed": "#07006c",
+                      "on-tertiary-container": "#461f00",
+                      "surface": "#0b1326",
+                      "on-error": "#690005",
+                      "on-primary-fixed": "#001a42",
+                      "surface-dim": "#0b1326",
+                      "surface-container-high": "#222a3d",
+                      "on-tertiary-fixed-variant": "#723600",
+                      "background": "#0b1326",
+                      "on-tertiary": "#502400",
+                      "on-secondary-container": "#b0b2ff",
+                      "primary": "#adc6ff",
+                      "secondary-fixed": "#e1e0ff",
+                      "tertiary-fixed": "#ffdcc6",
+                      "on-surface": "#dae2fd",
+                      "primary-fixed-dim": "#adc6ff",
+                      "outline-variant": "#424754",
+                      "outline": "#8c909f",
+                      "secondary-fixed-dim": "#c0c1ff",
+                      "tertiary-container": "#df7412",
+                      "secondary": "#c0c1ff",
+                      "on-secondary": "#1000a9",
+                      "on-surface-variant": "#c2c6d6",
+                      "error": "#ffb4ab",
+                      "surface-bright": "#31394d",
+                      "inverse-primary": "#005ac2",
+                      "tertiary-fixed-dim": "#ffb786",
+                      "inverse-on-surface": "#283044",
+                      "primary-container": "#4d8eff",
+                      "surface-container-highest": "#2d3449",
+                      "on-error-container": "#ffdad6"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "gutter": "16px",
+                      "stack-gap": "12px",
+                      "sidebar-width": "260px",
+                      "container-padding": "24px",
+                      "unit": "4px"
+              },
+              "fontFamily": {
+                      "display": [
+                              "Geist"
+                      ],
+                      "code-block": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-sm": [
+                              "Geist"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Geist"
+                      ],
+                      "label-caps": [
+                              "JetBrains Mono"
+                      ]
+              },
+              "fontSize": {
+                      "display": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "code-block": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.7",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-sm": [
+                              "18px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "label-caps": [
+                              "12px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+            },
+          }
+        }
+      </script>
+<style>
+        .CodeMirror-gutters {
+            border-right: 1px solid #334155;
+            background-color: #0b1326;
+            white-space: nowrap;
+        }
+        .CodeMirror-linenumber {
+            padding: 0 12px 0 8px;
+            text-align: right;
+            color: #8c909f;
+        }
+        .cm-s-default .cm-keyword { color: #adc6ff; }
+        .cm-s-default .cm-string { color: #ffb786; }
+        .cm-s-default .cm-number { color: #ffb4ab; }
+        .cm-s-default .cm-def { color: #c0c1ff; }
+        .cm-s-default .cm-variable { color: #dae2fd; }
+        .cm-s-default .cm-property { color: #dae2fd; }
+        .cm-s-default .cm-operator { color: #8c909f; }
+        .cm-s-default .cm-comment { color: #8c909f; font-style: italic; }
+      </style>
+</head>
+<body class="bg-background text-on-surface font-body-sm antialiased h-screen flex overflow-hidden">
+<!-- SideNavBar -->
+<nav class="bg-surface-container-low dark:bg-surface-container-low w-sidebar-width h-full fixed left-0 top-0 border-r border-outline-variant flex flex-col p-gutter z-50">
+<!-- Header -->
+<div class="flex items-center gap-3 mb-8">
+<div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-primary-container" data-icon="dns">dns</span>
+</div>
+<div class="flex flex-col">
+<span class="font-display text-headline-sm font-bold text-on-surface">Caddy Manager</span>
+<span class="text-on-surface-variant text-body-sm">v2.7.6 Stable</span>
+</div>
+</div>
+<!-- CTA -->
+<button class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-body-sm font-medium py-2 px-4 rounded-lg mb-6 flex items-center justify-center gap-2 transition-colors w-full active:scale-95 duration-150">
+<span class="material-symbols-outlined text-[18px]">add</span>
+            New Instance
+        </button>
+<!-- Tabs -->
+<div class="flex flex-col gap-1 flex-1">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors active:scale-95 duration-150 rounded-lg" href="#">
+
+
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-secondary-container text-on-secondary-container rounded-lg active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-display text-body-sm">Caddyfiles</span>
+</a>
+
+
+
+</div>
+<!-- Footer Tabs -->
+<div class="flex flex-col gap-1 mt-auto pt-4 border-t border-outline-variant">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-display text-body-sm">Settings</span>
+</a>
+
+</div>
+</nav>
+<!-- Main Content Wrapper -->
+<div class="flex-1 ml-[260px] flex flex-col h-full relative">
+<!-- TopNavBar -->
+<header class="bg-surface dark:bg-surface h-16 fixed top-0 right-0 left-sidebar-width z-40 border-b border-outline-variant flex justify-between items-center px-container-padding">
+<div class="flex items-center gap-6">
+<span class="font-display text-headline-md font-semibold text-primary">Configuration Editor</span>
+<nav class="flex items-center gap-4 h-full">
+<a class="text-primary border-b-2 border-primary pb-4 font-display text-body-lg h-16 flex items-center mt-4" href="#">Drafts</a>
+
+
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative focus-within:ring-2 focus-within:ring-primary rounded-lg">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
+
+</div>
+<div class="flex items-center gap-2 border-l border-outline-variant pl-4 ml-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-all">
+<span class="material-symbols-outlined" data-icon="sync">sync</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-all">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-all">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+<button class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-body-sm font-medium py-1.5 px-4 rounded-lg ml-2 transition-colors active:scale-95 duration-150">
+                    Deploy Configuration
+                </button>
+</div>
+</header>
+<!-- Editor Workspace -->
+<main class="flex-1 mt-16 p-container-padding flex gap-container-padding overflow-hidden mb-20">
+<!-- Left Pane: Caddyfile Editor -->
+<div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden">
+<div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
+<span class="font-display text-body-sm font-medium text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">description</span>
+                        Caddyfile Editor
+                    </span>
+<span class="font-label-caps text-label-caps text-on-surface-variant bg-surface-variant px-2 py-1 rounded">DRAFT</span>
+</div>
+<div class="flex-1 overflow-auto bg-surface-container-lowest font-code-block text-code-block flex">
+<!-- Fake Line Numbers -->
+<div class="w-12 bg-surface-container-lowest border-r border-outline-variant text-outline flex flex-col items-end py-4 pr-2 select-none shrink-0">
+<span class="">1</span>
+<span class="">2</span>
+<span class="">3</span>
+<span class="">4</span>
+<span class="">5</span>
+<span class="">6</span>
+<span class="">7</span>
+<span class="">8</span>
+<span class="">9</span>
+<span class="">10</span>
+</div>
+<!-- Fake Editor Content -->
+<div class="flex-1 p-4 overflow-auto whitespace-pre font-code-block text-code-block leading-relaxed outline-none">
+<span class="text-primary">example.com</span> {
+    <span class="text-tertiary">reverse_proxy</span> localhost:8080
+    
+    <span class="text-tertiary">log</span> {
+        <span class="text-secondary">output</span> file /var/log/caddy/access.log
+        <span class="text-secondary">format</span> json
+    }
+
+    <span class="text-tertiary">encode</span> gzip zstd
+}
+                    </div>
+</div>
+</div>
+<!-- Sync Indicator -->
+<div class="flex flex-col justify-center items-center px-2 shrink-0">
+<div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center border border-outline-variant relative group">
+<span class="material-symbols-outlined text-primary text-[18px]">sync_alt</span>
+<!-- Pulse effect -->
+<div class="absolute inset-0 rounded-full border border-primary animate-ping opacity-20"></div>
+<div class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface-container-highest text-on-surface font-label-caps text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        Live Sync Active
+                    </div>
+</div>
+</div>
+<!-- Right Pane: JSON Preview -->
+<div class="flex-1 flex flex-col bg-surface-container rounded-xl border border-outline-variant overflow-hidden">
+<div class="bg-surface-container-high px-4 py-2 border-b border-outline-variant flex justify-between items-center shrink-0">
+<span class="font-display text-body-sm font-medium text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-tertiary">data_object</span>
+                        JSON Preview
+                    </span>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">content_copy</span>
+</button>
+</div>
+<div class="flex-1 overflow-auto bg-surface-container-lowest p-4">
+<pre class="font-code-block text-code-block leading-relaxed"><code class="text-on-surface">
+{
+  <span class="text-secondary">"apps"</span>: {
+    <span class="text-secondary">"http"</span>: {
+      <span class="text-secondary">"servers"</span>: {
+        <span class="text-secondary">"srv0"</span>: {
+          <span class="text-secondary">"listen"</span>: [
+            <span class="text-tertiary">":443"</span>
+          ],
+          <span class="text-secondary">"routes"</span>: [
+            {
+              <span class="text-secondary">"match"</span>: [
+                {
+                  <span class="text-secondary">"host"</span>: [
+                    <span class="text-tertiary">"example.com"</span>
+                  ]
+                }
+              ],
+              <span class="text-secondary">"handle"</span>: [
+                {
+                  <span class="text-secondary">"handler"</span>: <span class="text-tertiary">"reverse_proxy"</span>,
+                  <span class="text-secondary">"upstreams"</span>: [
+                    {
+                      <span class="text-secondary">"dial"</span>: <span class="text-tertiary">"localhost:8080"</span>
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+                    </code></pre>
+</div>
+</div>
+</main>
+<!-- Footer / API Submission -->
+<div class="h-20 bg-surface-container border-t border-outline-variant fixed bottom-0 right-0 left-sidebar-width flex items-center px-container-padding justify-between z-30">
+<div class="flex items-center gap-4 flex-1">
+<div class="flex flex-col">
+<label class="font-label-caps text-label-caps text-on-surface-variant mb-1">ADMIN API ENDPOINT</label>
+<div class="relative w-96">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">api</span>
+<input class="bg-surface-container-lowest border border-outline-variant rounded-lg pl-9 pr-4 py-2 text-code-block text-on-surface focus:outline-none focus:border-primary w-full font-code-block transition-colors" type="text" value="http://localhost:2019/load">
+</div>
+</div>
+<div class="flex flex-col mt-4">
+<span class="flex items-center gap-1 text-on-surface-variant text-[12px] font-body-sm">
+<span class="w-2 h-2 rounded-full bg-primary block"></span>
+                        Status: Ready
+                    </span>
+</div>
+</div>
+<button class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-body-lg font-medium py-2.5 px-6 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 shadow-[0_4px_14px_0_rgba(173,198,255,0.15)]">
+<span class="material-symbols-outlined">send</span>
+                Submit to Admin API
+            </button>
+</div>
+</div>
+
+
+</body></html>
