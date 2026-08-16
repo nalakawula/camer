@@ -200,3 +200,21 @@ func prettyJSON(raw json.RawMessage) string {
 	}
 	return buf.String()
 }
+
+// canonicalJSON re-serialises JSON with object keys sorted, so two documents
+// that mean the same thing produce the same text. Only used for comparison:
+// Caddy's /adapt output and its /config/ output order keys differently, and
+// without this every compare would be swamped by reordering noise. Display
+// still uses prettyJSON, which preserves Caddy's own more readable ordering.
+func canonicalJSON(raw json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return prettyJSON(raw)
+	}
+	// encoding/json sorts map keys, so a round trip through `any` canonicalises.
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return prettyJSON(raw)
+	}
+	return string(out)
+}

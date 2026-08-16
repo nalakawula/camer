@@ -36,6 +36,7 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 	api.HandleFunc("GET /api/endpoint", s.handleResolveEndpoint)
 	api.HandleFunc("POST /api/diff", s.handleDiff)
 	api.HandleFunc("POST /api/adapt", s.handleAdapt)
+	api.HandleFunc("POST /api/compare", s.handleCompare)
 	api.HandleFunc("POST /api/load", s.handleLoad)
 	api.HandleFunc("POST /api/current", s.handleCurrent)
 
@@ -392,6 +393,38 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": msg})
+}
+
+// handleCompare answers the question the two panes cannot: how does the config
+// you are about to apply differ from the one Caddy is running? Both sides are
+// canonicalised first so key ordering does not drown the real changes.
+func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Caddyfile string `json:"caddyfile"`
+		Endpoint  string `json:"endpoint"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+
+	adapted, err := s.caddy.Adapt(ctx, in.Endpoint, in.Caddyfile)
+	if err != nil {
+		writeCaddyError(w, err, http.StatusUnprocessableEntity, "invalid")
+		return
+	}
+	running, err := s.caddy.CurrentConfig(ctx, in.Endpoint)
+	if err != nil {
+		writeCaddyError(w, err, http.StatusBadGateway, "caddy_error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"diff": DiffText(canonicalJSON(running), canonicalJSON(adapted.Result)),
+	})
 }
 
 func (s *Server) handleCurrent(w http.ResponseWriter, r *http.Request) {
