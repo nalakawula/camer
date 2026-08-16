@@ -1,0 +1,9 @@
+/* Input for the Tailwind build. The generated stylesheet is
+   web/vendor/tailwind.css, which index.html loads with a plain <link>.
+
+   base       — preflight, the resets the Play CDN used to inject at runtime
+   components — the forms plugin's input/select/checkbox normalisation
+   utilities  — every class the scan finds in index.html and app.js */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

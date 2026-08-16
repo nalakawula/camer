@@ -11,7 +11,7 @@ These scripts only need re-running when a vendored dependency changes.
 ```sh
 cd tools
 npm install
-npm run build          # rollup -c -> web/vendor/codemirror.js  (CodeMirror 6)
+npm run build          # rollup -c -> web/vendor/codemirror.js + web/vendor/tailwind.css
 python3 ../tools/vendor-fonts.py   # run from the repo root; -> web/vendor/fonts/ (icons only)
 npm test               # headless check of the editor integration
 ```
@@ -33,6 +33,23 @@ Adding a CodeMirror feature means adding its export to `cm6-entry.js` — the
 language, theme and editor wiring stay in `web/app.js`, so `web/vendor/` remains
 a pure dependency drop.
 
+## How the stylesheet is built
+
+Rollup bundles JavaScript, so Tailwind cannot be an input to it the way the
+CodeMirror modules are — CSS never enters the module graph. Instead a small
+plugin in `rollup.config.mjs` runs Tailwind through PostCSS during the same
+build and writes `web/vendor/tailwind.css`, so one `rollup -c` still produces
+every vendored artifact.
+
+`tailwind.config.js` holds the Material dark tokens that used to sit inline in
+`index.html`; `content` there lists the files scanned for class names, and
+`app.js` counts because it builds markup in template strings.
+
+Tailwind is pinned to **3.4.17**, the exact version the Play CDN served, so the
+generated stylesheet reproduces the previous rendering rather than migrating it.
+Upgrading to v4 is a separate job: the config becomes CSS-first `@theme`, and a
+handful of utility names changed.
+
 ## Fonts
 
 Only the Material Symbols icon subset is vendored, because icons are ligatures
@@ -49,6 +66,5 @@ editor script used to leave a page that rendered fine and did nothing.
 
 ## What is *not* vendored
 
-Tailwind still loads from `cdn.tailwindcss.com`. Without it the page renders
-unstyled but remains fully functional, which is a far softer failure than a dead
-editor. See CAM-33 in `PLAN.md`.
+Nothing. The served page makes no external request — verified by enumerating
+every `src`/`href` it asks for.

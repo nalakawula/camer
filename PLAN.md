@@ -37,7 +37,7 @@ P2 quality and accessibility · P3 polish
 
 | ID | P | Task | Status |
 |----|----|------|--------|
-| CAM-01 | P0 | Vendor CDN assets so the app works offline (except Tailwind → CAM-33) | [x] |
+| CAM-01 | P0 | Vendor CDN assets so the app works offline | [x] |
 | CAM-02 | P0 | Bind to localhost by default | [x] |
 | CAM-03 | P0 | Reject cross-origin writes (CSRF) | [x] |
 | CAM-04 | P0 | Confirmation step before applying to live | [x] |
@@ -69,7 +69,7 @@ P2 quality and accessibility · P3 polish
 | CAM-30 | P3 | Don't let a slow apply drop its audit record | [x] |
 | CAM-31 | P3 | Bracket matching and auto-close in the editor | [x] |
 | CAM-32 | P3 | Track the test files in git | [ ] |
-| CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [ ] |
+| CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [x] |
 
 ---
 
@@ -86,12 +86,12 @@ hosts with no egress, and while the proxy under repair is down. This also contra
 `README.md` ("single static binary, embedded web assets"), and `cdn.tailwindcss.com` is a
 dev-only build.
 
-**Scope note.** Tailwind was explicitly excluded from this task by the requester and is
-tracked separately as **CAM-33**. Everything else is done.
+**Scope note.** Tailwind was excluded from this task by the requester at the time and done
+separately as **CAM-33**, which has since landed — so no external reference remains.
 
 **Done when**
-- No `https://` asset references remain in `web/index.html` *except Tailwind*. ✔ (verified by
-  enumerating every `src`/`href` the served page requests)
+- No `https://` asset references remain in `web/index.html`. ✔ (verified by enumerating every
+  `src`/`href` the served page requests; the last one, Tailwind, went in CAM-33)
 - No font is fetched at runtime. ✔ (body text comes from the system; only the Material
   Symbols subset is self-hosted in `web/vendor/fonts/` with `@font-face`)
 - CodeMirror lives under `web/vendor/`. ✔
@@ -135,9 +135,9 @@ explaining that the editor failed to load instead of dying on the first call —
 failure mode this task existed to remove.
 
 Verified end to end: every asset the served page references resolves locally (the icon font,
-the bundle, app.js, patterns.js), with Tailwind the only external reference; and the binary
-serves the vendored files from a different working directory, proving they are embedded
-rather than read from disk.
+the bundle, the stylesheet, app.js, patterns.js) with no external reference at all; and the
+binary serves the vendored files from a different working directory, proving they are
+embedded rather than read from disk.
 
 ---
 
@@ -994,7 +994,7 @@ reason: nothing has been committed since.
 ---
 
 ### CAM-33 — Vendor or replace the Tailwind CDN build
-`[ ]` · P2 · Depends on: none · Files: `web/index.html`, `tools/*`
+`[x]` · P2 · Depends on: none · Files: `web/index.html`, `tools/*`
 
 **Problem.** Split out of CAM-01, which the requester scoped to exclude Tailwind. The page
 still loads `cdn.tailwindcss.com?plugins=forms` — a build explicitly documented as
@@ -1013,6 +1013,36 @@ a polish and correctness issue rather than an availability one, hence P2 not P0.
   markup actually uses instead — record the choice under `Result:`.
 - The dark theme tokens in the inline `tailwind.config` move into the generated stylesheet or
   a CSS custom-property block.
+
+**Result.** Tailwind is compiled at build time into `web/vendor/tailwind.css` (24 KB) and
+committed. `web/index.html` now contains no `https://` reference at all — the page makes no
+external request on any network.
+
+The build runs inside the existing Rollup pass. Rollup bundles JavaScript, so Tailwind cannot
+be one of its inputs the way the CodeMirror modules are; a ~20-line plugin in
+`rollup.config.mjs` drives Tailwind through PostCSS and writes the stylesheet next to the JS
+bundle instead, so one `rollup -c` still produces every vendored artifact. No third-party
+Rollup CSS plugin was needed.
+
+**Pinned to Tailwind 3.4.17 deliberately.** That is the exact version `cdn.tailwindcss.com`
+was serving — checked by grepping the version string out of the CDN payload — so the
+generated stylesheet reproduces the existing rendering rather than migrating it. v4 would
+have meant porting the config to CSS-first `@theme` and auditing the utilities it renamed,
+which is a separate job and not what "stop fetching a CDN" should cost.
+
+The inline `tailwind.config` moved verbatim into `tools/tailwind.config.js`, gaining only
+`content` (the files scanned for class names — `app.js` counts, it builds markup in template
+strings) and the forms plugin the CDN URL used to request as `?plugins=forms`.
+
+Sizes: 418 KB of CDN JavaScript, which compiled CSS in the browser on every page load, became
+24 KB of static CSS. The 251 distinct utility classes the markup uses were what that
+compiler was there to produce.
+
+Verified in a browser against the built stylesheet: every custom token resolves to its
+configured value (`surface-container-low` → `rgb(19,27,46)`, `w-sidebar-width` → 260px,
+`primary` → `rgb(173,198,255)`, `container-padding` → 24px, `rounded-xl` → 8px), the console
+is clean apart from the pre-existing favicon 404, and the 375px layout still reports zero
+overflowing elements.
 
 ---
 

@@ -16,7 +16,11 @@
     "@lezer/highlight": "1.2.3",
     "@rollup/plugin-node-resolve": "16.0.3",
     "@rollup/plugin-terser": "1.0.0",
-    "rollup": "4.62.4"
+    "@tailwindcss/forms": "0.5.11",
+    "cssnano": "8.0.5",
+    "postcss": "8.5.26",
+    "rollup": "4.62.4",
+    "tailwindcss": "3.4.17"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

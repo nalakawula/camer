@@ -5,9 +5,9 @@ config to a running Caddy via its admin API.
 
 - **Go 1.26** — single static binary, embedded web assets
 - **SQLite** via `modernc.org/sqlite` — pure Go, **no CGO / no gcc** required
-- **CodeMirror 6** is vendored under `web/vendor/` and embedded in the binary,
-  so the editor works with no network. Text is set in your own system fonts —
-  nothing to download. See [Vendored assets](#vendored-assets).
+- **No network at runtime** — the editor, the stylesheet and the icon font are
+  vendored under `web/vendor/` and embedded in the binary; body text uses your
+  own system fonts. See [Vendored assets](#vendored-assets).
 - Design follows `ui-prototype/` (Material dark "Developer" theme)
 
 ## Features
@@ -71,8 +71,9 @@ and apply.
 
 ## Vendored assets
 
-`web/vendor/` holds CodeMirror 6 (one 310 KB Rollup bundle) and a 31 KB Material
-Symbols subset carrying only the icons the UI uses. Both are committed, so
+`web/vendor/` holds CodeMirror 6 (one 310 KB Rollup bundle), the generated
+Tailwind stylesheet (24 KB) and a 31 KB Material Symbols subset carrying only
+the icons the UI uses. All three are committed, so
 **`go build` alone produces a working binary** — no Node, no npm, no network.
 
 Body text is deliberately *not* vendored: the UI asks for your platform's own
@@ -82,12 +83,15 @@ them installed. Icons are the one exception — they are ligatures in an icon
 font, and no operating system ships one, so without that subset every button
 would read as the literal word `delete` or `close`.
 
-The tooling in `tools/` only exists to regenerate them; see `tools/README.md`.
+The stylesheet is Tailwind, compiled once at build time rather than fetched from
+`cdn.tailwindcss.com` — a build Tailwind documents as development-only, which
+shipped 418 KB of JavaScript to do that compilation in the browser on every page
+load, and produced a flash of unstyled content while it worked.
 
-The one exception is Tailwind, still loaded from `cdn.tailwindcss.com`. Without
-it the page renders unstyled but stays fully functional — a far softer failure
-than a missing editor, which used to leave a page that looked fine and did
-nothing.
+**The page makes no external request at all.** Every stylesheet, script and font
+it references comes out of the binary.
+
+The tooling in `tools/` only exists to regenerate these; see `tools/README.md`.
 
 ## Security
 
