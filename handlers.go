@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,26 +17,79 @@ type Server struct {
 	caddy *CaddyClient
 }
 
-// Routes builds the HTTP mux for the API and static UI.
+// Routes builds the HTTP mux for the API and static UI. Every /api/ route is
+// wrapped in guardAPI; Camer has no authentication, so those checks are what
+// stand between a stray browser tab and a rewritten proxy config.
 func (s *Server) Routes(static http.Handler) http.Handler {
+	api := http.NewServeMux()
+
+	api.HandleFunc("GET /api/configs", s.handleListConfigs)
+	api.HandleFunc("POST /api/configs", s.handleCreateConfig)
+	api.HandleFunc("GET /api/configs/{id}", s.handleGetConfig)
+	api.HandleFunc("PUT /api/configs/{id}", s.handleUpdateConfig)
+	api.HandleFunc("DELETE /api/configs/{id}", s.handleDeleteConfig)
+
+	api.HandleFunc("GET /api/deploys", s.handleListDeploys)
+	api.HandleFunc("GET /api/deploys/latest", s.handleLatestDeploy)
+	api.HandleFunc("GET /api/deploys/{id}", s.handleGetDeploy)
+
+	api.HandleFunc("POST /api/adapt", s.handleAdapt)
+	api.HandleFunc("POST /api/load", s.handleLoad)
+	api.HandleFunc("POST /api/current", s.handleCurrent)
+
 	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /api/configs", s.handleListConfigs)
-	mux.HandleFunc("POST /api/configs", s.handleCreateConfig)
-	mux.HandleFunc("GET /api/configs/{id}", s.handleGetConfig)
-	mux.HandleFunc("PUT /api/configs/{id}", s.handleUpdateConfig)
-	mux.HandleFunc("DELETE /api/configs/{id}", s.handleDeleteConfig)
-
-	mux.HandleFunc("GET /api/deploys", s.handleListDeploys)
-	mux.HandleFunc("GET /api/deploys/latest", s.handleLatestDeploy)
-	mux.HandleFunc("GET /api/deploys/{id}", s.handleGetDeploy)
-
-	mux.HandleFunc("POST /api/adapt", s.handleAdapt)
-	mux.HandleFunc("POST /api/load", s.handleLoad)
-	mux.HandleFunc("POST /api/current", s.handleCurrent)
-
+	mux.Handle("/api/", guardAPI(api))
 	mux.Handle("/", static)
 	return mux
+}
+
+// guardAPI rejects requests a browser would only make on another site's behalf,
+// and request bodies that are not JSON.
+//
+// The Content-Type check is what closes the CSRF hole: a cross-origin form can
+// send text/plain, and a text/plain body can be crafted so that json.Decode
+// accepts it — which would let any page the user visits POST to /api/load and
+// reconfigure their server. Only fetch/XHR can set application/json, and doing
+// so cross-origin requires a CORS preflight that Camer never answers.
+func guardAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mutating := r.Method == http.MethodPost || r.Method == http.MethodPut ||
+			r.Method == http.MethodPatch || r.Method == http.MethodDelete
+
+		// Sec-Fetch-Site is set by the browser and cannot be forged by script.
+		// Its absence means a non-browser client (curl, a script), which no
+		// third-party site is able to steer, so absence is allowed.
+		if mutating {
+			if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+				writeError(w, http.StatusForbidden,
+					"cross-origin request rejected: this endpoint is only callable from Camer's own UI")
+				return
+			}
+		}
+
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			if !isJSONContentType(r.Header.Get("Content-Type")) {
+				writeError(w, http.StatusUnsupportedMediaType,
+					"expected Content-Type: application/json")
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isJSONContentType reports whether the header names the JSON media type,
+// ignoring parameters such as "; charset=utf-8".
+func isJSONContentType(header string) bool {
+	if header == "" {
+		return false
+	}
+	mt, _, err := mime.ParseMediaType(header)
+	if err != nil {
+		return false
+	}
+	return mt == "application/json"
 }
 
 // ---- config CRUD ----
