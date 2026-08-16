@@ -34,6 +34,7 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 	api.HandleFunc("GET /api/deploys/{id}", s.handleGetDeploy)
 
 	api.HandleFunc("GET /api/endpoint", s.handleResolveEndpoint)
+	api.HandleFunc("POST /api/diff", s.handleDiff)
 	api.HandleFunc("POST /api/adapt", s.handleAdapt)
 	api.HandleFunc("POST /api/load", s.handleLoad)
 	api.HandleFunc("POST /api/current", s.handleCurrent)
@@ -280,6 +281,59 @@ func (s *Server) handleResolveEndpoint(w http.ResponseWriter, r *http.Request) {
 			out["reachable"] = true
 		}
 	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleDiff compares a Caddyfile against a recorded deploy — by default the
+// one that is live. It backs the pre-apply confirmation, so the question "what
+// will this change?" is answered before the change lands rather than after it
+// in the audit log.
+func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Content string `json:"content"`
+		// BaseDeployID selects what to compare against; omitted means the last
+		// successful deploy, i.e. what Caddy is running.
+		BaseDeployID *int64 `json:"base_deploy_id"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var (
+		base *Deploy
+		err  error
+	)
+	if in.BaseDeployID != nil {
+		var d Deploy
+		d, err = s.store.GetDeploy(r.Context(), *in.BaseDeployID)
+		if err == nil {
+			base = &d
+		}
+	} else {
+		var d Deploy
+		d, err = s.store.LatestAppliedDeploy(r.Context())
+		if err == nil {
+			base = &d
+		}
+	}
+	switch {
+	case err == nil, errors.Is(err, ErrNotFound):
+		// A missing base is normal: nothing has been applied yet.
+	default:
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	out := map[string]any{"base": nil}
+	baseContent := ""
+	if base != nil {
+		baseContent = base.Content
+		b := *base
+		b.Content = "" // the diff already carries the relevant lines
+		out["base"] = b
+	}
+	out["diff"] = DiffText(baseContent, in.Content)
 	writeJSON(w, http.StatusOK, out)
 }
 
