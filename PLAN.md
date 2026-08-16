@@ -73,6 +73,7 @@ P2 quality and accessibility · P3 polish
 | CAM-34 | P1 | Compare tab serves a stale result after the Caddyfile changes | [x] |
 | CAM-35 | P1 | Warn before an apply that moves or disables the admin API | [x] |
 | CAM-36 | P3 | Route the discard-unsaved prompts through askDialog | [x] |
+| CAM-37 | P2 | Pull Running should recover the Caddyfile, not just the JSON | [ ] |
 
 ---
 
@@ -1212,6 +1213,59 @@ through the CAM-04 dialog stack rather than any new handling.
 Verified in a browser for all three paths: the prompt names the right draft and the right
 replacement in each; Escape, Cancel and the backdrop all leave the edit untouched; Discard
 replaces it. `grep -c 'confirm("' web/app.js` is 0.
+
+---
+
+### CAM-37 — Pull Running should recover the Caddyfile, not just the JSON
+`[ ]` · P2 · Depends on: CAM-14, CAM-15 · Files: `handlers.go`, `store.go`, `web/app.js`, `web/index.html`
+
+**Problem.** Pull Running fills the Running tab with Caddy's native JSON, and that is where it
+stops. Camer is a Caddyfile editor: JSON is the one format it cannot edit, so the most common
+reason to pull — *what is actually running, let me change it* — dead-ends. You can read the
+answer but not act on it, short of hand-translating it back.
+
+**The constraint that shapes this task, verified before writing it down.** Caddy's config
+adapters are one-way. `caddy help` puts it plainly: "config adapters can be used to convert
+other config formats to JSON". There is no `unadapt` subcommand, no reverse endpoint on the
+admin API, and the JSON is a superset of what a Caddyfile can express — a config written by
+hand or produced by a different adapter may have no Caddyfile form at all. So "convert the
+running JSON into a Caddyfile" cannot be done reliably in the general case, and any code that
+claims to will sometimes hand back a Caddyfile that adapts to something *different* from what
+is running. In a tool whose whole job is applying configs to a live server, that is worse than
+returning nothing.
+
+**The route that does work: recovery, not reconstruction.** Camer already stores the exact
+Caddyfile of every apply in `deploys.content`. If the running JSON is canonically equal to the
+adapted output of one of those, the source Caddyfile is *known* — recovered, not guessed. The
+live deploy is the first candidate and will match in the ordinary case, since Camer applied it.
+
+**Done when**
+- Pull Running still fills the Running tab, and additionally reports whether Camer knows the
+  Caddyfile behind what is running.
+- On a match, the UI offers to load that Caddyfile into the editor, names the deploy it came
+  from, and goes through the CAM-36 discard guard like every other path that replaces editor
+  content.
+- On no match — applied outside Camer, or by another tool — it says exactly that. It must not
+  synthesize a Caddyfile, and the JSON view stays useful.
+- Comparison canonicalises both sides via CAM-15's `canonicalJSON`; without it, key ordering
+  makes every candidate look wrong.
+- Matching is bounded: live deploy first, then the most recent handful. Each candidate costs an
+  `/adapt` round trip, so walking the whole history on every pull is not acceptable.
+- An unreachable endpoint degrades to "cannot tell", never to "no match" — the CAM-06
+  distinction applies here too.
+
+**Decisions to make while implementing**
+- **Server-side or client-side matching.** Prefer server-side, for the reason CAM-15 gives:
+  one round trip and no second copy of the adapt logic in the browser. Something like
+  `POST /api/identify {endpoint}` returning `{deploy, matched}`.
+- **Storing the adapted JSON with each deploy** would turn matching into a string comparison
+  instead of N adapt calls, and would keep working when Caddy is unreachable. It is a schema
+  change to the `deploys` table plus a backfill for existing rows, so it is a deliberate
+  trade, not a free win. Worth doing if matching feels slow.
+- **Best-effort reconstruction is explicitly out of scope.** If it is ever wanted it needs its
+  own task, and its own honesty rule: a reconstructed Caddyfile may only be offered if it
+  adapts back to the same canonical JSON. Anything that fails that round trip must be refused,
+  not shown with a disclaimer.
 
 ---
 
