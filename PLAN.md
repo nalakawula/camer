@@ -71,6 +71,8 @@ P2 quality and accessibility · P3 polish
 | CAM-32 | P3 | Track the test files in git | [x] |
 | CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [x] |
 | CAM-34 | P1 | Compare tab serves a stale result after the Caddyfile changes | [x] |
+| CAM-35 | P1 | Warn before an apply that moves or disables the admin API | [ ] |
+| CAM-36 | P3 | Route the discard-unsaved prompts through askDialog | [ ] |
 
 ---
 
@@ -1093,6 +1095,75 @@ that emptying the editor now reads "The editor is empty — there is nothing to 
 
 ---
 
+### CAM-35 — Warn before an apply that moves or disables the admin API
+`[ ]` · P1 · Depends on: CAM-04 · Files: `web/app.js`
+
+**Problem.** Applying a Caddyfile can move the admin API out from under Camer, and the apply
+succeeds before anyone finds out. Found while testing CAM-08 against a real Caddy: apply a
+config with no global `admin` directive while pointed at a non-default admin port, and Caddy
+drops that listener and reverts to `localhost:2019`. Every subsequent Camer call fails as
+`unreachable`. CAM-06 reports that accurately, but by then the damage is done and the cause
+is invisible — the user sees a working apply followed by a dead tool.
+
+This is the sharpest remaining footgun in the app: the one action that reconfigures a live
+server can also sever the connection used to fix it.
+
+Confirmed against a running Caddy through `/adapt`, which is read-only. There are three
+outcomes, not one:
+
+| Caddyfile | adapted JSON | effect |
+|-----------|--------------|--------|
+| `admin localhost:2020` | `admin: {"listen": "localhost:2020"}` | the admin API moves |
+| no `admin` block | **no `admin` key at all** | reverts to the default `localhost:2019` |
+| `admin off` | `admin: {"disabled": true}` | the admin API is gone entirely |
+
+The third case is worse than the one originally reported and was not in the note: there is no
+new address to point at, and nothing Camer can do to recover — Caddy has to be restarted with
+a config that re-enables the endpoint.
+
+**Done when**
+- Before applying, Camer works out the admin address the new config produces: `admin.listen`
+  when present, Caddy's default when the key is absent, "disabled" when `admin.disabled` is
+  true.
+- When that differs from the endpoint currently in use, the CAM-04 confirmation carries a
+  prominent warning naming both addresses and saying plainly that Camer will lose contact
+  after applying, and where to point it afterwards.
+- `admin off` gets its own wording: no address to move to, and the API stays gone until Caddy
+  is restarted with a config that re-enables it.
+- Comparison normalises host forms, so `localhost:2019` against `http://127.0.0.1:2019` does
+  not raise a false warning. Reuse the server's `normalizeBase` via `GET /api/endpoint`
+  rather than reimplementing the rules in JS (the CAM-04 note applies here too).
+- The re-apply path is covered as well: `reapplyDeploy` applies historical content that is
+  not in the editor, so `preview.adapted.json` is the wrong source for it — adapt the content
+  actually being applied.
+- Verified against a real Caddy for all three outcomes, and for the no-change case, which must
+  stay silent.
+
+---
+
+### CAM-36 — Route the discard-unsaved prompts through askDialog
+`[ ]` · P3 · Depends on: CAM-11 · Files: `web/app.js`
+
+**Problem.** Three paths still call the native `confirm("Discard unsaved changes?")` —
+`selectConfig` (`app.js:731`), `newConfig` (`app.js:743`) and `restoreDeploy`
+(`app.js:1572`) — while every other confirmation in the app goes through `askDialog`, which
+CAM-11 built on the CAM-04 dialog helper. They are the last unthemed, untrapped prompts in
+the UI, and the copy says nothing about *what* is being discarded.
+
+**Scope note.** This is consistency and copy, not accessibility: a browser's own `confirm()`
+is perfectly accessible. What it cannot do is name the draft at risk, offer a third option,
+or match the rest of the app — and it blocks the JS thread while open.
+
+**Done when**
+- All three prompts use `askDialog`, with wording that names the draft whose changes would be
+  lost and what replaces it.
+- Cancel is the focused default, matching the other destructive dialogs.
+- Escape and the backdrop both cancel, inherited from the dialog helper rather than
+  reimplemented.
+- No `confirm(` remains in `web/app.js` — a grep is the gate.
+
+---
+
 ## Verified non-issues
 
 Checked during review; do not re-investigate without new evidence.
@@ -1115,16 +1186,5 @@ Checked during review; do not re-investigate without new evidence.
 New findings that don't yet have a home. Promote them into a numbered task before starting
 work on one.
 
-- **Applying a Caddyfile with no `admin` block silently cuts Camer off from the server.**
-  Found while testing CAM-08 against a real Caddy: applying a config that omits a global
-  `admin` directive makes Caddy drop its current admin listener and revert to the default
-  `localhost:2019`. The apply succeeds, then every subsequent Camer call to the old endpoint
-  fails as `unreachable`, and the user has no idea why. CAM-06 reports this correctly, but
-  the UI could detect it — the adapted JSON shows `admin.listen`, so the pre-apply
-  confirmation could warn "this changes the admin API address to X" before it happens. This
-  is arguably the sharpest remaining footgun in the app.
-
-- **Native `confirm()` is still used for the three discard-unsaved prompts**
-  (`selectConfig`, `newConfig`, `restoreDeploy`), which now looks out of place beside the
-  `askDialog`-based confirmations. Cosmetic, but it means those prompts are not
-  focus-trapped or themed like the rest.
+*(Empty — the admin-endpoint footgun became CAM-35 and the native `confirm()` prompts became
+CAM-36, both with their claims re-checked against the current code first.)*
