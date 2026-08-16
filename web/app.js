@@ -638,21 +638,50 @@ async function loadConfigList() {
   }
 }
 
+// FILTER_THRESHOLD is where scanning a list by eye stops working.
+const FILTER_THRESHOLD = 8;
+
 function renderConfigList() {
   const box = $("config-list");
+  const filter = $("config-filter");
   box.innerHTML = "";
+
+  filter.classList.toggle("hidden", state.configs.length < FILTER_THRESHOLD);
+  const q = filter.classList.contains("hidden") ? "" : filter.value.trim().toLowerCase();
+  const items = q
+    ? state.configs.filter((c) => c.name.toLowerCase().includes(q))
+    : state.configs;
+
   if (state.configs.length === 0) {
-    box.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">No saved configs yet.<br>Create one to get started.</div>`;
+    box.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">No saved drafts yet.<br>Create one to get started.</div>`;
     return;
   }
-  for (const c of state.configs) {
+  if (items.length === 0) {
+    box.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">No draft matches “${escapeHTML(q)}”.</div>`;
+    return;
+  }
+
+  for (const c of items) {
     const active = c.id === state.currentId;
+    // Which draft is live matters as much here as it does in the history.
+    const live = state.live != null && state.live.configId === c.id;
     const a = document.createElement("button");
+    a.setAttribute("role", "listitem");
     a.className = `w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg transition-colors active:scale-95 duration-150 ${
       active ? "bg-secondary-container text-on-secondary-container" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
     }`;
-    a.innerHTML = `<span class="material-symbols-outlined text-[18px] shrink-0">description</span>
-      <span class="font-display truncate flex-1">${escapeHTML(c.name)}</span>`;
+    // Names truncate, and two "Untitled Caddyfile" rows are indistinguishable
+    // without a timestamp — so carry both, plus the full name in the tooltip.
+    a.title = `${c.name} — updated ${absTime(c.updated_at)}`;
+    a.innerHTML =
+      `<span class="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">description</span>
+       <span class="flex flex-col min-w-0 flex-1">
+         <span class="font-display flex items-center gap-1.5 min-w-0">
+           <span class="truncate">${escapeHTML(c.name)}</span>
+           ${live ? LIVE_BADGE : ""}
+         </span>
+         <span class="text-[11px] ${active ? "" : "text-on-surface-variant"}">updated ${escapeHTML(relTime(c.updated_at))}</span>
+       </span>`;
     a.addEventListener("click", () => selectConfig(c.id));
     box.appendChild(a);
   }
