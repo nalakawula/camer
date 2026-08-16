@@ -250,19 +250,28 @@
 </div>
 
 <!-- Deploy history (audit) -->
-<div id="history-modal" class="hidden fixed inset-0 z-[80] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-8">
+<div id="history-modal" class="hidden fixed inset-0 z-[80] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4 lg:p-8"
+     role="dialog" aria-modal="true" aria-labelledby="history-title">
   <div class="bg-surface-container border border-outline-variant rounded-xl w-full max-w-6xl h-[82vh] flex flex-col overflow-hidden shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]">
-    <div class="bg-surface-container-high px-4 py-3 border-b border-outline-variant flex justify-between items-center shrink-0">
-      <span class="font-display font-medium text-on-surface flex items-center gap-2">
-        <span class="material-symbols-outlined text-[18px] text-primary">history</span> Deploy History
-        <span class="text-on-surface-variant text-[12px] font-body">every submit to the admin API, newest first</span>
+    <div class="bg-surface-container-high px-4 py-3 border-b border-outline-variant flex justify-between items-center gap-3 shrink-0">
+      <span id="history-title" class="font-display font-medium text-on-surface flex items-center gap-2 min-w-0">
+        <span class="material-symbols-outlined text-[18px] text-primary shrink-0" aria-hidden="true">history</span> Deploy History
+        <span class="text-on-surface-variant text-[12px] font-body truncate">every apply, newest first</span>
       </span>
-      <button id="btn-history-close" title="Close" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
-        <span class="material-symbols-outlined text-[20px]">close</span>
+      <button id="btn-history-close" aria-label="Close deploy history" title="Close" class="text-on-surface-variant hover:text-primary transition-colors flex items-center shrink-0">
+        <span class="material-symbols-outlined text-[20px]" aria-hidden="true">close</span>
       </button>
     </div>
     <div class="flex-1 flex min-h-0">
-      <div id="history-list" class="w-80 shrink-0 border-r border-outline-variant overflow-y-auto p-2 flex flex-col gap-1"></div>
+      <div class="w-72 lg:w-80 shrink-0 border-r border-outline-variant flex flex-col min-h-0">
+        <div id="history-count" class="px-3 py-2 text-[12px] text-on-surface-variant border-b border-outline-variant shrink-0"></div>
+        <div id="history-list" class="flex-1 overflow-y-auto p-2 flex flex-col gap-1"></div>
+        <div class="p-2 shrink-0">
+          <button id="btn-history-more" class="hidden w-full border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary text-[13px] font-medium py-1.5 rounded-lg transition-colors">
+            Load older
+          </button>
+        </div>
+      </div>
       <div id="history-detail" class="flex-1 overflow-auto bg-surface-container-lowest min-w-0"></div>
     </div>
   </div>

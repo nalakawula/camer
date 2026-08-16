@@ -1230,32 +1230,60 @@ async function copyJSON() {
 }
 
 // ---- deploy history (audit) ----
-const hist = { deploys: [], selected: null };
+const hist = { deploys: [], selected: null, total: 0 };
+const HISTORY_PAGE = 50;
+
+// The single most important fact in a deploy list is which entry is running
+// right now; without it a FAILED row gives no clue what state the server is in.
+// Derived from state.live so the badge and the header indicator cannot disagree.
+const LIVE_BADGE = `<span class="font-label text-[10px] text-success border border-success/50 rounded px-1.5 py-0.5 shrink-0">LIVE</span>`;
+
+function isLiveDeploy(id) {
+  return state.live != null && state.live.id === id;
+}
 
 function openHistory() {
-  $("history-modal").classList.remove("hidden");
+  openDialog($("history-modal"), { onCancel: closeHistory, initialFocus: $("btn-history-close") });
   loadHistory();
 }
 
-function closeHistory() { $("history-modal").classList.add("hidden"); }
+function closeHistory() { closeDialog($("history-modal")); }
 
-async function loadHistory() {
+// loadHistory fetches a page. append=true adds the next page instead of
+// replacing, so older entries are reachable rather than silently cut off.
+async function loadHistory(append = false) {
   const list = $("history-list");
-  list.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">Loading…</div>`;
+  if (!append) {
+    list.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">Loading…</div>`;
+  }
   try {
-    hist.deploys = await api("GET", "/api/deploys?limit=100");
+    const offset = append ? hist.deploys.length : 0;
+    const res = await api("GET", `/api/deploys?limit=${HISTORY_PAGE}&offset=${offset}`);
+    hist.total = res.total;
+    hist.deploys = append ? hist.deploys.concat(res.deploys) : res.deploys;
   } catch (e) {
     list.innerHTML = `<div class="text-error text-[13px] px-3 py-4 text-center">${escapeHTML(e.message)}</div>`;
     return;
   }
   renderHistoryList();
+  if (append) return;
   if (hist.deploys.length) selectDeploy(hist.deploys[0].id);
-  else $("history-detail").innerHTML = `<div class="text-on-surface-variant text-[13px] p-8 text-center">Nothing has been submitted to the admin API yet.</div>`;
+  else $("history-detail").innerHTML = `<div class="text-on-surface-variant text-[13px] p-8 text-center">Nothing has been applied yet.</div>`;
 }
 
 function renderHistoryList() {
   const list = $("history-list");
   list.innerHTML = "";
+
+  // Say how much of the history is on screen rather than truncating in silence.
+  const shown = hist.deploys.length;
+  $("history-count").textContent = hist.total === 0
+    ? "No deploys recorded"
+    : shown >= hist.total
+    ? `${hist.total} ${hist.total === 1 ? "deploy" : "deploys"}`
+    : `showing ${shown} of ${hist.total}`;
+  $("btn-history-more").classList.toggle("hidden", shown >= hist.total);
+
   if (hist.deploys.length === 0) {
     list.innerHTML = `<div class="text-on-surface-variant text-[13px] px-3 py-4 text-center">No deploys recorded.</div>`;
     return;
@@ -1266,12 +1294,14 @@ function renderHistoryList() {
     btn.className = `w-full text-left px-3 py-2 rounded-lg transition-colors ${
       active ? "bg-secondary-container text-on-secondary-container" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
     }`;
+    btn.title = d.config_name || "Unsaved draft";
     btn.innerHTML = `<div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-[16px] shrink-0 ${d.ok ? "text-success" : "text-error"}">${d.ok ? "check_circle" : "error"}</span>
+        <span aria-hidden="true" class="material-symbols-outlined text-[16px] shrink-0 ${d.ok ? "text-success" : "text-error"}">${d.ok ? "check_circle" : "error"}</span>
         <span class="font-display truncate flex-1">${escapeHTML(d.config_name || "Unsaved draft")}</span>
-        <span class="font-label text-[11px] opacity-60 shrink-0">#${d.id}</span>
+        ${isLiveDeploy(d.id) ? LIVE_BADGE : ""}
+        <span class="font-label text-[11px] text-on-surface-variant shrink-0">#${d.id}</span>
       </div>
-      <div class="text-[12px] pl-6 opacity-70 truncate">${escapeHTML(absTime(d.created_at))}</div>`;
+      <div class="text-[12px] pl-6 text-on-surface-variant truncate">${escapeHTML(absTime(d.created_at))}</div>`;
     btn.addEventListener("click", () => selectDeploy(d.id));
     list.appendChild(btn);
   }
@@ -1292,32 +1322,53 @@ function renderDeployDetail(res) {
   const { deploy: d, base, diff } = res;
   const box = $("history-detail");
 
+  const live = isLiveDeploy(d.id);
+
   const chip = d.ok
     ? `<span class="font-label text-[11px] text-success border border-success/50 rounded px-2 py-0.5">APPLIED</span>`
     : `<span class="font-label text-[11px] text-error border border-error/50 rounded px-2 py-0.5">FAILED</span>`;
 
+  // A failed deploy is still diffed against the last *successful* one, so the
+  // copy has to be conditional: nothing here was ever applied.
   const against = base
-    ? `Diff against deploy <b>#${base.id}</b> — ${escapeHTML(absTime(base.created_at))} (${escapeHTML(relTime(base.created_at))})`
-    : `No earlier applied config — this is the first configuration Camer applied.`;
+    ? (d.ok
+        ? `Diff against deploy <b>#${base.id}</b> — the configuration it replaced (${escapeHTML(relTime(base.created_at))})`
+        : `Compared with deploy <b>#${base.id}</b>, which stayed live — this apply was rejected and changed nothing`)
+    : (d.ok
+        ? `No earlier applied config — this is the first configuration Camer applied.`
+        : `No earlier applied config, and this apply failed, so Camer had applied nothing at this point.`);
 
   const stats = diff.identical
-    ? `<span class="text-on-surface-variant">identical to the previous applied config</span>`
+    ? `<span class="text-on-surface-variant">${d.ok ? "identical to the previous applied config" : "would have made no changes"}</span>`
     : `<span class="text-success">+${diff.added}</span> <span class="text-error">−${diff.removed}</span>` +
       (diff.truncated ? ` <span class="text-on-surface-variant">(too large to diff precisely — shown as a full replacement)</span>` : "");
+
+  const notApplied = d.ok ? "" :
+    `<div class="text-[13px] mt-2 text-tertiary flex items-start gap-2">
+       <span class="material-symbols-outlined text-[16px] shrink-0" aria-hidden="true">block</span>
+       <span>Not applied — Caddy rejected this and kept the configuration it was already running.</span>
+     </div>`;
 
   box.innerHTML = `
     <div class="p-4 border-b border-outline-variant bg-surface-container sticky top-0 z-10">
       <div class="flex items-center gap-3 flex-wrap">
         ${chip}
+        ${live ? LIVE_BADGE : ""}
         <span class="font-display text-[16px] text-on-surface">${escapeHTML(d.config_name || "Unsaved draft")}</span>
         <span class="font-label text-[12px] text-on-surface-variant">#${d.id}</span>
         <span class="text-[13px] text-on-surface-variant">${escapeHTML(absTime(d.created_at))} · ${escapeHTML(relTime(d.created_at))}</span>
-        <button id="btn-restore" class="ml-auto border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-3 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 text-[13px]">
-          <span class="material-symbols-outlined text-[16px]">restore</span> Load into editor
-        </button>
+        <span class="ml-auto flex items-center gap-2">
+          ${live ? "" : `<button id="btn-reapply" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-3 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 text-[13px]">
+            <span class="material-symbols-outlined text-[16px]" aria-hidden="true">history_toggle_off</span> Re-apply
+          </button>`}
+          <button id="btn-restore" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-1.5 px-3 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2 text-[13px]">
+            <span class="material-symbols-outlined text-[16px]" aria-hidden="true">restore</span> Load into editor
+          </button>
+        </span>
       </div>
       <div class="text-[12px] text-on-surface-variant font-code mt-2 break-all">${escapeHTML(d.endpoint || "http://localhost:2019")}</div>
       <div class="text-[13px] mt-1 ${d.ok ? "text-on-surface-variant" : "text-error"} whitespace-pre-wrap break-words">${escapeHTML(d.message)}</div>
+      ${notApplied}
       <div class="text-[13px] mt-3 pt-3 border-t border-outline-variant flex items-center gap-3 flex-wrap">
         <span class="text-on-surface-variant">${against}</span>
         <span class="font-code">${stats}</span>
@@ -1326,13 +1377,20 @@ function renderDeployDetail(res) {
     <div id="diff-body" class="font-code text-[13px] leading-[1.6] py-2"></div>`;
 
   $("btn-restore").addEventListener("click", () => restoreDeploy(d));
-  renderDiff(diff);
+  if (!live) $("btn-reapply").addEventListener("click", () => reapplyDeploy(d));
+
+  renderDiff(diff, $("diff-body"), {
+    identicalMessage: d.ok
+      ? "No changes — this apply re-sent the same Caddyfile."
+      : "No changes — this would not have altered the running configuration, and it was never applied.",
+  });
 }
 
-function renderDiff(diff) {
-  const body = $("diff-body");
+// renderDiff draws a diff into body. Shared by the deploy history and the
+// pre-apply confirmation, which need different copy for the no-change case.
+function renderDiff(diff, body, { identicalMessage } = {}) {
   if (diff.identical) {
-    body.innerHTML = `<div class="text-on-surface-variant text-[13px] font-body p-8 text-center">No changes — this submit re-applied the same Caddyfile.</div>`;
+    body.innerHTML = `<div class="text-on-surface-variant text-[13px] font-body p-8 text-center">${escapeHTML(identicalMessage || "No changes.")}</div>`;
     return;
   }
   const rows = [];
