@@ -21,6 +21,24 @@ func NewCaddyClient() *CaddyClient {
 	return &CaddyClient{http: &http.Client{Timeout: 15 * time.Second}}
 }
 
+// TransportError reports that the Caddy admin API could not be reached at all
+// — DNS failure, connection refused, timeout — as opposed to Caddy being
+// reached and rejecting the request. Callers must keep the two apart: an
+// unreachable endpoint says nothing about whether a Caddyfile is valid, and
+// reporting it as a config error sends users hunting for a syntax mistake that
+// does not exist.
+type TransportError struct {
+	// Base is the normalized admin base URL that was contacted.
+	Base string
+	Err  error
+}
+
+func (e *TransportError) Error() string {
+	return fmt.Sprintf("cannot reach the Caddy admin API at %s: %v", e.Base, e.Err)
+}
+
+func (e *TransportError) Unwrap() error { return e.Err }
+
 // AdaptResult is the response of Caddy's /adapt endpoint.
 type AdaptResult struct {
 	// Result is the adapted native JSON config.
@@ -71,7 +89,7 @@ func (c *CaddyClient) Adapt(ctx context.Context, endpoint, caddyfile string) (*A
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("contacting caddy admin at %s: %w", base, err)
+		return nil, &TransportError{Base: base, Err: err}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
@@ -99,7 +117,7 @@ func (c *CaddyClient) Load(ctx context.Context, endpoint, caddyfile string) erro
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("contacting caddy admin at %s: %w", base, err)
+		return &TransportError{Base: base, Err: err}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -119,7 +137,7 @@ func (c *CaddyClient) CurrentConfig(ctx context.Context, endpoint string) (json.
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("contacting caddy admin at %s: %w", base, err)
+		return nil, &TransportError{Base: base, Err: err}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))

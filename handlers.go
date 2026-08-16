@@ -272,9 +272,11 @@ func (s *Server) handleAdapt(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.caddy.Adapt(ctx, in.Endpoint, in.Caddyfile)
 	if err != nil {
-		// A failed adapt is a config/connection problem, not a server fault;
-		// surface it as 422 so the UI can show it inline.
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		// Caddy rejecting the Caddyfile is a 422 the UI shows in the preview
+		// pane; an unreachable admin API is a 502 that belongs next to the
+		// endpoint field instead. Conflating them makes a valid Caddyfile look
+		// invalid whenever the endpoint is wrong.
+		writeCaddyError(w, err, http.StatusUnprocessableEntity, "invalid")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -306,7 +308,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.RecordDeploy(ctx, in.ConfigID, in.Caddyfile, in.Endpoint, err == nil, msg)
 
 	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		writeCaddyError(w, err, http.StatusUnprocessableEntity, "invalid")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": msg})
@@ -325,7 +327,7 @@ func (s *Server) handleCurrent(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := s.caddy.CurrentConfig(ctx, in.Endpoint)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCaddyError(w, err, http.StatusBadGateway, "caddy_error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"json": prettyJSON(raw)})
@@ -359,4 +361,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// writeCaddyError maps an error from the Caddy client onto a status and a
+// machine-readable kind, so the UI can tell "I cannot reach Caddy" apart from
+// "your config is wrong" instead of rendering both as one red failure.
+//
+// kind is "unreachable" for transport failures, otherwise the caller's
+// invalidKind — "invalid" for adapt/load, where a Caddy rejection really does
+// mean the config is bad, and "caddy_error" for reads, where it does not.
+func writeCaddyError(w http.ResponseWriter, err error, invalidStatus int, invalidKind string) {
+	var te *TransportError
+	if errors.As(err, &te) {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":    te.Error(),
+			"kind":     "unreachable",
+			"endpoint": te.Base,
+		})
+		return
+	}
+	writeJSON(w, invalidStatus, map[string]string{
+		"error": err.Error(),
+		"kind":  invalidKind,
+	})
 }
