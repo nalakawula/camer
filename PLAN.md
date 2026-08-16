@@ -68,7 +68,7 @@ P2 quality and accessibility · P3 polish
 | CAM-29 | P3 | Discoverable keyboard shortcuts | [x] |
 | CAM-30 | P3 | Don't let a slow apply drop its audit record | [x] |
 | CAM-31 | P3 | Bracket matching and auto-close in the editor | [x] |
-| CAM-32 | P3 | Track the test files in git | [ ] |
+| CAM-32 | P3 | Track the test files in git | [x] |
 | CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [x] |
 | CAM-34 | P1 | Compare tab serves a stale result after the Caddyfile changes | [x] |
 
@@ -984,13 +984,16 @@ closing brace.
 ---
 
 ### CAM-32 — Track the test files in git
-`[ ]` · P3 · Depends on: none · Files: `diff_test.go`, `handlers_test.go`
+`[x]` · P3 · Depends on: none · Files: `diff_test.go`, `handlers_test.go`
 
 **Problem.** `diff_test.go` is untracked at `2ef93fa` — the only test file in the repo was
 absent from the history. `handlers_test.go` (added by CAM-03) is untracked for the same
 reason: nothing has been committed since.
 
 **Done when** both are committed.
+
+**Result.** Both are tracked. `diff_test.go` went in on its own, ahead of the server changes
+so it stayed green at that commit; `handlers_test.go` followed the handlers it covers.
 
 ---
 
