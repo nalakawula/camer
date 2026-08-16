@@ -962,29 +962,241 @@ function renderWarnings(warnings) {
   }).join("");
 }
 
-// ---- submit / load into Caddy ----
-function setStatus(text, dotClass) {
-  $("status-text").textContent = text;
-  $("status-dot").className = "w-2 h-2 rounded-full block " + dotClass;
+// ---- dialogs (focus trap + focus restore) ----
+// A small shared helper rather than one-off wiring per modal: CAM-21 routes the
+// deploy-history modal through this too.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+const dialogStack = [];
+
+function openDialog(el, { initialFocus, onCancel } = {}) {
+  dialogStack.push({ el, onCancel, restore: document.activeElement });
+  el.classList.remove("hidden");
+  const target = initialFocus || el.querySelector(FOCUSABLE);
+  if (target) target.focus();
 }
 
-async function submitToCaddy() {
+function closeDialog(el) {
+  const i = dialogStack.findIndex((d) => d.el === el);
+  if (i === -1) return;
+  const [entry] = dialogStack.splice(i, 1);
+  el.classList.add("hidden");
+  if (entry.restore && typeof entry.restore.focus === "function") entry.restore.focus();
+}
+
+function topDialog() {
+  return dialogStack.length ? dialogStack[dialogStack.length - 1] : null;
+}
+
+// askDialog poses a question with an arbitrary set of answers and resolves the
+// chosen action's key, or null when dismissed. Exists because the choices that
+// matter here — overwrite versus save-as-new — cannot be expressed by a native
+// confirm(), and because a destructive action should name what it destroys.
+function askDialog({ title, body, icon = "help", iconCls = "text-tertiary", actions }) {
+  const modal = $("ask-modal");
+  const box = $("ask-actions");
+  $("ask-title").textContent = title;
+  $("ask-icon").textContent = icon;
+  $("ask-icon").className = "material-symbols-outlined text-[18px] " + iconCls;
+  $("ask-body").innerHTML = body.map((p) => `<p>${escapeHTML(p)}</p>`).join("");
+  box.innerHTML = "";
+
+  return new Promise((resolve) => {
+    const done = (key) => {
+      modal.removeEventListener("click", onBackdrop);
+      closeDialog(modal);
+      resolve(key);
+    };
+    const onBackdrop = (e) => { if (e.target === modal) done(null); };
+
+    let firstSafe = null;
+    for (const a of actions) {
+      const b = document.createElement("button");
+      b.className = "font-medium py-2 px-4 rounded-lg transition-colors active:scale-95 duration-150 " + (
+        a.danger ? "border border-error/60 text-error hover:bg-error/10"
+        : a.primary ? "bg-primary hover:bg-primary-fixed-dim text-on-primary"
+        : "border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary"
+      );
+      b.textContent = a.label;
+      b.addEventListener("click", () => done(a.key));
+      box.appendChild(b);
+      if (!firstSafe && !a.danger && !a.primary) firstSafe = b;
+    }
+    modal.addEventListener("click", onBackdrop);
+    // Focus the least destructive answer, so a stray Enter cannot do damage.
+    openDialog(modal, { initialFocus: firstSafe || box.firstChild, onCancel: () => done(null) });
+  });
+}
+
+// Keep Tab inside the topmost dialog so the overlay is not just a visual barrier.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  const top = topDialog();
+  if (!top) return;
+  const items = [...top.el.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+// ---- apply to Caddy ----
+
+// resolveEndpoint asks the server which base URL it will actually call, so the
+// confirmation shows the real target rather than the raw string. Falls back to
+// the raw value if the lookup fails — never block applying on a cosmetic call.
+async function resolveEndpoint(endpoint) {
+  try {
+    const res = await api("GET", `/api/endpoint?url=${encodeURIComponent(endpoint)}`);
+    return res.base;
+  } catch {
+    return endpoint || "http://localhost:2019";
+  }
+}
+
+// fetchDiff compares content against a recorded deploy — by default whatever is
+// live. Returns null on failure: the diff is decision support, so a broken diff
+// must not block applying.
+async function fetchDiff(content, baseDeployID = null) {
+  try {
+    return await api("POST", "/api/diff", { content, base_deploy_id: baseDeployID });
+  } catch {
+    return null;
+  }
+}
+
+// renderConfirmDiff answers "what will this change?" before the change lands,
+// rather than only afterwards in the audit log.
+function renderConfirmDiff(res) {
+  const summary = $("confirm-diff-summary");
+  const stats = $("confirm-diff-stats");
+  const body = $("confirm-diff");
+
+  if (!res) {
+    summary.textContent = "Could not compare against the running configuration.";
+    stats.textContent = "";
+    body.innerHTML = "";
+    return;
+  }
+  const { diff, base } = res;
+
+  if (base) {
+    summary.innerHTML = `against the live configuration — deploy <b>#${base.id}</b>, ` +
+      `applied ${escapeHTML(relTime(base.created_at))}`;
+  } else {
+    summary.textContent = "Camer has not applied anything yet — this is the first configuration it will apply.";
+  }
+
+  stats.innerHTML = diff.identical
+    ? `<span class="text-on-surface-variant">no changes</span>`
+    : `<span class="text-success">+${diff.added}</span> <span class="text-error">−${diff.removed}</span>` +
+      (diff.truncated ? ` <span class="text-on-surface-variant">(too large to diff precisely — shown as a full replacement)</span>` : "");
+
+  renderDiff(diff, body, {
+    identicalMessage: "Identical to the configuration Caddy is already running — applying this changes nothing.",
+  });
+}
+
+// confirmApply resolves true only when the user explicitly confirms.
+function confirmApply({ endpointBase, name, source, diffRes, title }) {
+  const modal = $("confirm-modal");
+  $("confirm-title").textContent = title || "Apply this configuration to Caddy?";
+  $("confirm-endpoint").textContent = endpointBase + "/load";
+  $("confirm-name").textContent = name;
+  $("confirm-source").textContent = source;
+  renderConfirmDiff(diffRes);
+
+  return new Promise((resolve) => {
+    const done = (ok) => {
+      $("confirm-ok").removeEventListener("click", onOK);
+      $("confirm-cancel").removeEventListener("click", onCancel);
+      modal.removeEventListener("click", onBackdrop);
+      closeDialog(modal);
+      resolve(ok);
+    };
+    const onOK = () => done(true);
+    const onCancel = () => done(false);
+    const onBackdrop = (e) => { if (e.target === modal) done(false); };
+
+    $("confirm-ok").addEventListener("click", onOK);
+    $("confirm-cancel").addEventListener("click", onCancel);
+    modal.addEventListener("click", onBackdrop);
+    // Cancel takes focus: the safe choice should be the one a stray Enter hits.
+    openDialog(modal, { initialFocus: $("confirm-cancel"), onCancel });
+  });
+}
+
+async function applyConfig() {
   const caddyfile = editor.getValue();
+  if (!caddyfile.trim()) { toast("Nothing to apply — the editor is empty.", "error"); return; }
   const endpoint = $("endpoint").value.trim();
-  if (!caddyfile.trim()) { toast("Nothing to submit — the editor is empty.", "error"); return; }
+
+  const [endpointBase, diffRes] = await Promise.all([
+    resolveEndpoint(endpoint),
+    fetchDiff(caddyfile),
+  ]);
+
+  const confirmed = await confirmApply({
+    endpointBase,
+    diffRes,
+    name: $("config-name").value.trim() || "Untitled Caddyfile",
+    source: isSaved()
+      ? "the saved draft"
+      : "the editor contents, which are not saved as a draft",
+  });
+  if (!confirmed) return;
+
+  await applyToCaddy(caddyfile, endpoint, state.currentId);
+}
+
+// reapplyDeploy puts a historical configuration back on the server. The audit
+// trail already stores full content, so rollback costs one confirmation — and
+// users arrive at a deploy history expecting exactly that.
+async function reapplyDeploy(d) {
+  const endpoint = $("endpoint").value.trim();
+  const [endpointBase, diffRes] = await Promise.all([
+    resolveEndpoint(endpoint),
+    fetchDiff(d.content),
+  ]);
+
+  const confirmed = await confirmApply({
+    title: `Re-apply deploy #${d.id} to Caddy?`,
+    endpointBase,
+    diffRes,
+    name: d.config_name || "Unsaved draft",
+    source: `deploy #${d.id}, applied ${relTime(d.created_at)}`,
+  });
+  if (!confirmed) return;
+
+  // Record it against the config it originally came from, not whatever the
+  // editor happens to hold.
+  await applyToCaddy(d.content, endpoint, d.config_id ?? null);
+  await loadHistory();
+}
+
+async function applyToCaddy(caddyfile, endpoint, configId) {
   const btn = $("btn-submit");
   btn.disabled = true;
-  setStatus("Applying…", "bg-tertiary animate-pulse");
+  state.applying = true;
+  state.applyFailed = false;
+  refreshState();
   try {
-    await api("POST", "/api/load", { caddyfile, endpoint, config_id: state.currentId });
-    setStatus("Applied", "bg-success");
+    await api("POST", "/api/load", { caddyfile, endpoint, config_id: configId ?? null });
+    state.applying = false;
+    // Trust the server's record of what is live rather than assuming.
+    await refreshLive();
+    setEndpointReachable(true);
+    refreshState();
     toast("Configuration applied to Caddy.", "success");
   } catch (e) {
-    setStatus("Failed", "bg-error");
+    state.applying = false;
+    state.applyFailed = true;
+    // A rejected config still proves Caddy was reached.
+    setEndpointReachable(e.kind !== "unreachable", e.message);
+    refreshState();
     toast("Apply failed: " + e.message, "error");
   } finally {
     btn.disabled = false;
-    setTimeout(() => setStatus("Ready", "bg-primary"), 4000);
   }
 }
 
@@ -1224,7 +1436,7 @@ $("config-name").addEventListener("input", refreshDirty);
 $("btn-new").addEventListener("click", newConfig);
 $("btn-save").addEventListener("click", saveConfig);
 $("btn-delete").addEventListener("click", deleteConfig);
-$("btn-submit").addEventListener("click", submitToCaddy);
+$("btn-submit").addEventListener("click", applyConfig);
 $("btn-fetch").addEventListener("click", pullCurrent);
 $("btn-copy").addEventListener("click", copyJSON);
 $("btn-refresh-list").addEventListener("click", loadConfigList);

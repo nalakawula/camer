@@ -268,8 +268,82 @@
   </div>
 </div>
 
-<!-- Toast container -->
-<div id="toasts" class="fixed bottom-28 right-6 z-[100] flex flex-col gap-2 items-end"></div>
+<!-- Apply confirmation. Applying reconfigures the live server, so it is the one
+     action that must never happen on a single stray click. -->
+<div id="confirm-modal" class="hidden fixed inset-0 z-[90] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-8"
+     role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="bg-surface-container border border-outline-variant rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]">
+    <div class="bg-surface-container-high px-4 py-3 border-b border-outline-variant flex items-center gap-2 shrink-0">
+      <span class="material-symbols-outlined text-[18px] text-tertiary" aria-hidden="true">warning</span>
+      <span id="confirm-title" class="font-display font-medium text-on-surface">Apply this configuration to Caddy?</span>
+    </div>
+    <div class="p-4 flex flex-col gap-4 shrink-0">
+      <p class="text-on-surface-variant text-[13px]">
+        This replaces the configuration Caddy is serving right now, and takes effect
+        immediately.
+      </p>
+      <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-[13px]">
+        <dt class="font-label text-[11px] tracking-wider text-on-surface-variant uppercase pt-0.5">Target</dt>
+        <dd id="confirm-endpoint" class="font-code text-on-surface break-all"></dd>
+        <dt class="font-label text-[11px] tracking-wider text-on-surface-variant uppercase pt-0.5">Config</dt>
+        <dd id="confirm-name" class="text-on-surface break-words"></dd>
+        <dt class="font-label text-[11px] tracking-wider text-on-surface-variant uppercase pt-0.5">Source</dt>
+        <dd id="confirm-source" class="text-on-surface-variant"></dd>
+      </dl>
+    </div>
+    <!-- What will actually change, against the configuration that is live. -->
+    <div class="px-4 pb-2 flex items-center gap-3 flex-wrap shrink-0 border-t border-outline-variant pt-3">
+      <span class="font-label text-[11px] tracking-wider text-on-surface-variant uppercase">Changes</span>
+      <span id="confirm-diff-summary" class="text-[13px] text-on-surface-variant"></span>
+      <span id="confirm-diff-stats" class="font-code text-[13px]"></span>
+    </div>
+    <div id="confirm-diff" class="flex-1 min-h-0 overflow-auto bg-surface-container-lowest border-t border-outline-variant font-code text-[13px] leading-[1.6] py-2"></div>
+    <div class="px-4 py-3 border-t border-outline-variant flex justify-end gap-3 bg-surface-container-high shrink-0">
+      <button id="confirm-cancel" class="border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-medium py-2 px-4 rounded-lg transition-colors active:scale-95 duration-150">
+        Cancel
+      </button>
+      <button id="confirm-ok" class="bg-primary hover:bg-primary-fixed-dim text-on-primary font-medium py-2 px-5 rounded-lg transition-colors active:scale-95 duration-150 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">send</span> Apply Configuration
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Keyboard shortcuts. Reachable from the sidebar as well as with "?", since a
+     shortcut list you can only open with a shortcut helps nobody. -->
+<div id="shortcuts-modal" class="hidden fixed inset-0 z-[95] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-8"
+     role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+  <div class="bg-surface-container border border-outline-variant rounded-xl w-full max-w-md flex flex-col overflow-hidden shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]">
+    <div class="bg-surface-container-high px-4 py-3 border-b border-outline-variant flex justify-between items-center">
+      <span id="shortcuts-title" class="font-display font-medium text-on-surface flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px] text-primary" aria-hidden="true">keyboard</span> Keyboard Shortcuts
+      </span>
+      <button id="shortcuts-close" aria-label="Close shortcuts" title="Close" class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+        <span class="material-symbols-outlined text-[20px]" aria-hidden="true">close</span>
+      </button>
+    </div>
+    <dl id="shortcuts-list" class="p-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2.5 text-[13px] items-center"></dl>
+  </div>
+</div>
+
+<!-- Generic question dialog: delete confirmation, and the overwrite-vs-save-as
+     choice when a restored deploy would clobber a newer draft. -->
+<div id="ask-modal" class="hidden fixed inset-0 z-[95] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-8"
+     role="dialog" aria-modal="true" aria-labelledby="ask-title">
+  <div class="bg-surface-container border border-outline-variant rounded-xl w-full max-w-lg flex flex-col overflow-hidden shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]">
+    <div class="bg-surface-container-high px-4 py-3 border-b border-outline-variant flex items-center gap-2">
+      <span id="ask-icon" class="material-symbols-outlined text-[18px] text-tertiary" aria-hidden="true">help</span>
+      <span id="ask-title" class="font-display font-medium text-on-surface"></span>
+    </div>
+    <div id="ask-body" class="p-4 text-[13px] text-on-surface-variant flex flex-col gap-2"></div>
+    <div id="ask-actions" class="px-4 py-3 border-t border-outline-variant flex justify-end gap-3 bg-surface-container-high flex-wrap"></div>
+  </div>
+</div>
+
+<!-- Toast container. A live region, so apply failures are not silent to screen
+     readers; individual error toasts additionally carry role="alert". -->
+<div id="toasts" aria-live="polite" aria-atomic="false"
+     class="fixed bottom-28 right-6 z-[100] flex flex-col gap-2 items-end"></div>
 
 <script src="patterns.js"></script>
 <script src="app.js"></script>
