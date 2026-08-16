@@ -87,16 +87,27 @@
   #btn-drawer{display:none;}
   #drawer-backdrop{display:none;}
   @media (max-width:1023px){
-    body{height:auto;min-height:100vh;display:block;overflow:auto;}
+    /* body[class], not body: <body> carries Tailwind utilities (h-screen, flex,
+       overflow-hidden) and a class selector outranks a bare type selector, so
+       the plain rule lost silently. Losing it left the page a flex row whose
+       #main could not shrink below its min-content width — 476px at a 375px
+       viewport — with overflow-hidden clipping the excess rather than scrolling
+       it. The attribute selector matches any classed body and wins on
+       specificity. */
+    body[class]{height:auto;min-height:100vh;display:block;overflow:auto;}
     #btn-drawer{display:flex;}
     #sidebar{transform:translateX(-100%);transition:transform .2s ease;width:280px;}
     body[data-drawer="open"] #sidebar{transform:translateX(0);}
     body[data-drawer="open"] #drawer-backdrop{display:block;}
-    #main{margin-left:0;height:auto;}
+    /* min-width:0 is the flex-item escape hatch, kept as a second line of
+       defence: if #main ever ends up a flex item again, it may shrink. */
+    #main{margin-left:0;height:auto;min-width:0;}
     #topbar{position:sticky;left:auto;right:auto;top:0;}
     #workspace{flex-direction:column;margin-top:0;margin-bottom:0;height:auto;overflow:visible;}
     #connector{display:none;}
-    #mobile-tabs{display:flex;}
+    /* mt-16 in the markup clears the fixed header; here the header is sticky
+       and therefore still in flow, so that margin was pure dead space. */
+    #mobile-tabs{display:flex;margin-top:0;}
     body[data-pane="editor"] #pane-json{display:none;}
     body[data-pane="json"] #pane-editor{display:none;}
     #pane-editor,#pane-json{height:65vh;}
