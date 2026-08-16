@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"mime"
 	"net/http"
 	"strconv"
@@ -398,8 +399,18 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		msg = err.Error()
 	}
-	// Best-effort audit log; never block the response on it.
-	_ = s.store.RecordDeploy(ctx, in.ConfigID, in.Caddyfile, in.Endpoint, err == nil, msg)
+
+	// The audit write gets a context detached from the request. Sharing the
+	// request's deadline meant a slow Caddy — or a client that navigated away —
+	// could consume the budget and silently drop the record, in the one feature
+	// whose entire purpose is being a reliable trail of what was applied.
+	auditCtx, auditCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer auditCancel()
+	if auditErr := s.store.RecordDeploy(auditCtx, in.ConfigID, in.Caddyfile, in.Endpoint, err == nil, msg); auditErr != nil {
+		// Still not fatal to the response — the apply already happened — but it
+		// must not vanish without a trace.
+		log.Printf("audit: recording deploy failed (endpoint=%q applied=%v): %v", in.Endpoint, err == nil, auditErr)
+	}
 
 	if err != nil {
 		writeCaddyError(w, err, http.StatusUnprocessableEntity, "invalid")
