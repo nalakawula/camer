@@ -11,10 +11,27 @@ These scripts only need re-running when a vendored dependency changes.
 ```sh
 cd tools
 npm install
-npm run build          # -> web/vendor/codemirror.js  (CodeMirror 6)
+npm run build          # rollup -c -> web/vendor/codemirror.js  (CodeMirror 6)
 python3 ../tools/vendor-fonts.py   # run from the repo root; -> web/vendor/fonts/
 npm test               # headless check of the editor integration
 ```
+
+## How the CodeMirror bundle is built
+
+`rollup.config.mjs` follows CodeMirror's own [Bundling with
+Rollup](https://codemirror.net/examples/bundle/) guide: `cm6-entry.js` imports
+the pieces Camer uses, `@rollup/plugin-node-resolve` resolves the bare
+`@codemirror/*` specifiers into `node_modules`, and the output is an IIFE
+exposing one `CM` global — so `index.html` loads it with a plain `<script>` tag
+and needs no module plumbing or import map.
+
+`@rollup/plugin-terser` is the size step the same guide recommends: CodeMirror
+ships with its full source, comments and whitespace, so stripping those takes
+the bundle from roughly 1 MB to ~310 KB.
+
+Adding a CodeMirror feature means adding its export to `cm6-entry.js` — the
+language, theme and editor wiring stay in `web/app.js`, so `web/vendor/` remains
+a pure dependency drop.
 
 ## Why vendor at all
 

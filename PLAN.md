@@ -105,10 +105,20 @@ uses: **31 KB instead of several megabytes**. One wrinkle worth keeping: the sub
 serves woff2 from a `/l/font?kit=…` URL with no file extension, so the fetcher matches on the
 declared `format('woff2')` rather than the suffix.
 
-CodeMirror was moved to **v6** (see CAM-31) and bundled with esbuild to a single committed
-`web/vendor/codemirror.js` (312 KB). The `tools/` project is build-time only — the artifacts
-are committed, so `go build` alone still produces a working binary with no Node and no
-network. `tools/README.md` explains regeneration.
+CodeMirror was moved to **v6** (see CAM-31) and bundled to a single committed
+`web/vendor/codemirror.js` (310 KB) with Rollup and `@rollup/plugin-node-resolve`, per
+CodeMirror's own "Bundling with Rollup" guide, plus Terser for the size step that guide
+recommends. The `tools/` project is build-time only — the artifacts are committed, so
+`go build` alone still produces a working binary with no Node and no network.
+`tools/README.md` explains regeneration.
+
+**There is no prebuilt CodeMirror 6 to download instead.** v6 is published only as a graph
+of ES modules with bare specifiers, which no browser resolves; cdnjs lists zero files for
+`codemirror@6.0.2`. The `codemirror/6.65.7` build on cdnjs is *not* v6 — npm deprecates it as
+"an accidentally mis-tagged instance of 5.65.7", published seven minutes before the real
+5.65.7 on 2022-07-20, and its minified file is byte-identical to 5.65.7's apart from the
+embedded version string. cdnjs surfaces it as the newest version only because 6.65.7 sorts
+above 6.0.2. Do not re-investigate.
 
 `app.js` now checks for the `CM` global up front and, if absent, renders a red banner
 explaining that the editor failed to load instead of dying on the first call — the precise

@@ -71,7 +71,7 @@ and apply.
 
 ## Vendored assets
 
-`web/vendor/` holds CodeMirror 6 (one 312 KB bundle) and the web fonts,
+`web/vendor/` holds CodeMirror 6 (one 310 KB Rollup bundle) and the web fonts,
 including a Material Symbols subset containing only the icons the UI uses. They
 are committed, so **`go build` alone produces a working binary** — no Node, no
 npm, no network.

@@ -1,9 +1,9 @@
 {
   "name": "camer-vendor",
   "private": true,
-  "description": "Build-time only: bundles CodeMirror 6 into web/vendor/. Not needed to build or run Camer \u2014 the bundle is committed.",
+  "description": "Build-time only: bundles CodeMirror 6 into web/vendor/. Not needed to build or run Camer — the bundle is committed.",
   "scripts": {
-    "build": "esbuild cm6-entry.js --bundle --format=iife --global-name=CM --minify --legal-comments=none --target=es2020 --outfile=../web/vendor/codemirror.js",
+    "build": "rollup -c",
     "test": "node editor-test.mjs",
     "fonts": "cd .. && python3 tools/vendor-fonts.py"
   },
@@ -14,7 +14,9 @@
     "@codemirror/state": "6.7.1",
     "@codemirror/view": "6.43.8",
     "@lezer/highlight": "1.2.3",
-    "esbuild": "0.28.2"
+    "@rollup/plugin-node-resolve": "16.0.3",
+    "@rollup/plugin-terser": "1.0.0",
+    "rollup": "4.62.4"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"
