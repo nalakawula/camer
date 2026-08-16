@@ -88,7 +88,13 @@ const editorHighlight = CM.syntaxHighlighting(CM.HighlightStyle.define([
 const editorTheme = CM.EditorView.theme({
   "&": { height: "100%", backgroundColor: "#060e20", color: "#dae2fd", fontSize: "14px" },
   "&.cm-focused": { outline: "none" },
-  ".cm-scroller": { fontFamily: '"JetBrains Mono", monospace', lineHeight: "1.7", overflow: "auto" },
+  // Same stack as the `font-code` utility in index.html: the user's own
+  // monospace face, with JetBrains Mono preferred if they happen to have it.
+  ".cm-scroller": {
+    fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    lineHeight: "1.7",
+    overflow: "auto",
+  },
   ".cm-content": { caretColor: "#adc6ff", padding: "4px 0" },
   ".cm-gutters": { backgroundColor: "#060e20", color: "#8c909f", borderRight: "1px solid #424754" },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 8px" },

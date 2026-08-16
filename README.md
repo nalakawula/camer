@@ -5,9 +5,9 @@ config to a running Caddy via its admin API.
 
 - **Go 1.26** — single static binary, embedded web assets
 - **SQLite** via `modernc.org/sqlite` — pure Go, **no CGO / no gcc** required
-- **CodeMirror 6** and all web fonts are vendored under `web/vendor/` and
-  embedded in the binary, so the editor works with no network. See
-  [Vendored assets](#vendored-assets).
+- **CodeMirror 6** is vendored under `web/vendor/` and embedded in the binary,
+  so the editor works with no network. Text is set in your own system fonts —
+  nothing to download. See [Vendored assets](#vendored-assets).
 - Design follows `ui-prototype/` (Material dark "Developer" theme)
 
 ## Features
@@ -71,10 +71,16 @@ and apply.
 
 ## Vendored assets
 
-`web/vendor/` holds CodeMirror 6 (one 310 KB Rollup bundle) and the web fonts,
-including a Material Symbols subset containing only the icons the UI uses. They
-are committed, so **`go build` alone produces a working binary** — no Node, no
-npm, no network.
+`web/vendor/` holds CodeMirror 6 (one 310 KB Rollup bundle) and a 31 KB Material
+Symbols subset carrying only the icons the UI uses. Both are committed, so
+**`go build` alone produces a working binary** — no Node, no npm, no network.
+
+Body text is deliberately *not* vendored: the UI asks for your platform's own
+interface and monospace faces (`system-ui`, `ui-monospace` and friends), naming
+Geist, Inter and JetBrains Mono first so they are used if you happen to have
+them installed. Icons are the one exception — they are ligatures in an icon
+font, and no operating system ships one, so without that subset every button
+would read as the literal word `delete` or `close`.
 
 The tooling in `tools/` only exists to regenerate them; see `tools/README.md`.
 

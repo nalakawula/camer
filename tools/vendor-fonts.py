@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Download the web fonts Camer uses into web/vendor/fonts and emit fonts.css.
+"""Download the Material Symbols subset into web/vendor/fonts and emit fonts.css.
 
 Camer is a tool for repairing a reverse proxy, so it has to work on a host with
 no egress and while the proxy under repair is down. Anything fetched at runtime
 is a dependency that fails exactly when the tool is needed most.
 
-Run from the repo root; commit the result. Only needed when the font set changes.
+Body text is *not* vendored: index.html asks for the platform's own UI and
+monospace faces, so there is nothing to download and nothing to ship. Icons are
+the exception — they are ligatures in an icon font, and no operating system has
+one, so a glyph-less machine would render every button as the literal word
+"delete" or "close". This subset carries only the icons the UI actually uses.
+
+Run from the repo root; commit the result. Only needed when the icon set changes.
 """
 import os, re, sys, urllib.request
 
@@ -25,9 +31,6 @@ unfold_less unfold_more warning wrap_text
 """.split()))
 
 FACES = [
-    ("geist",    "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap"),
-    ("inter",    "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"),
-    ("jetbrains","https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"),
     ("symbols",  "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
                  "&icon_names=" + ICONS),
 ]

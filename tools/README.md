@@ -12,7 +12,7 @@ These scripts only need re-running when a vendored dependency changes.
 cd tools
 npm install
 npm run build          # rollup -c -> web/vendor/codemirror.js  (CodeMirror 6)
-python3 ../tools/vendor-fonts.py   # run from the repo root; -> web/vendor/fonts/
+python3 ../tools/vendor-fonts.py   # run from the repo root; -> web/vendor/fonts/ (icons only)
 npm test               # headless check of the editor integration
 ```
 
@@ -32,6 +32,13 @@ the bundle from roughly 1 MB to ~310 KB.
 Adding a CodeMirror feature means adding its export to `cm6-entry.js` — the
 language, theme and editor wiring stay in `web/app.js`, so `web/vendor/` remains
 a pure dependency drop.
+
+## Fonts
+
+Only the Material Symbols icon subset is vendored, because icons are ligatures
+in an icon font and no operating system has one — without it every button would
+render as the literal word `delete` or `close`. Body text comes from the user's
+own system faces, so there is nothing to download and nothing to ship.
 
 ## Why vendor at all
 

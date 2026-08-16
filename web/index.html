@@ -30,7 +30,16 @@
       },
       borderRadius:{ "DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"9999px" },
       spacing:{ "gutter":"16px","stack-gap":"12px","sidebar-width":"260px","container-padding":"24px","unit":"4px" },
-      fontFamily:{ "display":["Geist","sans-serif"],"body":["Inter","sans-serif"],"code":["JetBrains Mono","monospace"],"label":["JetBrains Mono","monospace"] },
+      /* Text comes from the machine, not from us: the branded faces are named
+         first so anyone who has them installed still gets them, then the
+         platform's own UI and monospace stacks. Nothing is downloaded, and
+         nothing has to be vendored, for any of this. */
+      fontFamily:{
+        "display":["Geist","system-ui","-apple-system","Segoe UI","Roboto","Helvetica Neue","Arial","sans-serif"],
+        "body":["Inter","system-ui","-apple-system","Segoe UI","Roboto","Helvetica Neue","Arial","sans-serif"],
+        "code":["JetBrains Mono","ui-monospace","SFMono-Regular","SF Mono","Menlo","Consolas","Liberation Mono","monospace"],
+        "label":["JetBrains Mono","ui-monospace","SFMono-Regular","SF Mono","Menlo","Consolas","Liberation Mono","monospace"]
+      },
     }},
   }
 </script>

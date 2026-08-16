@@ -92,18 +92,28 @@ tracked separately as **CAM-33**. Everything else is done.
 **Done when**
 - No `https://` asset references remain in `web/index.html` *except Tailwind*. ✔ (verified by
   enumerating every `src`/`href` the served page requests)
-- Fonts are self-hosted in `web/vendor/fonts/` with `@font-face`, including the Material
-  Symbols subset. ✔
+- No font is fetched at runtime. ✔ (body text comes from the system; only the Material
+  Symbols subset is self-hosted in `web/vendor/fonts/` with `@font-face`)
 - CodeMirror lives under `web/vendor/`. ✔
 - `go build` then running the binary offline gives a working editor. ✔
 - `app.js` fails loudly rather than silently if its editor dependency is missing. ✔
 
-**Result.** `tools/vendor-fonts.py` downloads the four faces into `web/vendor/fonts/` and
-rewrites `fonts.css` to point at the local files — 19 woff2 files, 400 KB total. The Material
-Symbols face is subsetted via the `icon_names=` parameter to the 36 icons the UI actually
-uses: **31 KB instead of several megabytes**. One wrinkle worth keeping: the subset endpoint
-serves woff2 from a `/l/font?kit=…` URL with no file extension, so the fetcher matches on the
-declared `format('woff2')` rather than the suffix.
+**Result.** `tools/vendor-fonts.py` downloads the Material Symbols subset into
+`web/vendor/fonts/` and rewrites `fonts.css` to point at the local file. The face is
+subsetted via the `icon_names=` parameter to the 36 icons the UI actually uses: **31 KB
+instead of several megabytes**.
+
+Body text is *not* vendored. It was at first — Geist, Inter and JetBrains Mono, 18 woff2
+files and 384 KB — until the obvious question got asked: why ship fonts at all when the
+machine already has some? `index.html` now names those three first and falls through to
+`system-ui`/`ui-monospace`, so a machine that has them still gets them and nothing is
+downloaded either way. Icons stay vendored because they are ligatures in an icon font and
+no OS ships one; dropping it would render every button as the word `delete` or `close`.
+`web/vendor/fonts/` went from 20 files and 440 KB to 2 files and 31 KB.
+
+One wrinkle worth keeping: the subset endpoint serves woff2 from a `/l/font?kit=…` URL with
+no file extension, so the fetcher matches on the declared `format('woff2')` rather than the
+suffix.
 
 CodeMirror was moved to **v6** (see CAM-31) and bundled to a single committed
 `web/vendor/codemirror.js` (310 KB) with Rollup and `@rollup/plugin-node-resolve`, per
@@ -124,7 +134,7 @@ above 6.0.2. Do not re-investigate.
 explaining that the editor failed to load instead of dying on the first call — the precise
 failure mode this task existed to remove.
 
-Verified end to end: every asset the served page references resolves locally (19/19 fonts,
+Verified end to end: every asset the served page references resolves locally (the icon font,
 the bundle, app.js, patterns.js), with Tailwind the only external reference; and the binary
 serves the vendored files from a different working directory, proving they are embedded
 rather than read from disk.
