@@ -727,8 +727,31 @@ function loadIntoEditor(id, name, content) {
   renderConfigList();
 }
 
+// confirmDiscard guards the three paths that throw editor content away. It is a
+// dialog rather than a native confirm() so the prompt can name the draft at risk
+// and say what replaces it — confirm() can express neither, and looked out of
+// place beside every other confirmation in the app.
+async function confirmDiscard(replacement) {
+  if (!isDirty()) return true;
+  const name = state.savedName || $("config-name").value.trim() || "This draft";
+  const choice = await askDialog({
+    title: "Discard unsaved changes?",
+    icon: "warning",
+    body: [
+      `“${name}” has changes that have not been saved.`,
+      `${replacement} The unsaved version is not kept anywhere.`,
+    ],
+    actions: [
+      { key: "cancel", label: "Cancel" },
+      { key: "discard", label: "Discard changes", danger: true },
+    ],
+  });
+  return choice === "discard";
+}
+
 async function selectConfig(id) {
-  if (isDirty() && !confirm("Discard unsaved changes?")) return;
+  const target = state.configs.find((c) => c.id === id);
+  if (!(await confirmDiscard(`Opening “${target ? target.name : "that draft"}” replaces them.`))) return;
   try {
     const c = await api("GET", `/api/configs/${id}`);
     loadIntoEditor(c.id, c.name, c.content);
@@ -739,8 +762,8 @@ async function selectConfig(id) {
   }
 }
 
-function newConfig() {
-  if (isDirty() && !confirm("Discard unsaved changes?")) return;
+async function newConfig() {
+  if (!(await confirmDiscard("A new, empty Caddyfile replaces them."))) return;
   loadIntoEditor(null, "", STARTER);
   scheduleAdapt(true);
   editor.focus();
@@ -1676,8 +1699,8 @@ function renderDiff(diff, body, { identicalMessage } = {}) {
 // restoreDeploy puts a historical Caddyfile back in the editor. It stays
 // attached to its source config when that config still exists, so saving
 // updates the same draft rather than creating a stray copy.
-function restoreDeploy(d) {
-  if (isDirty() && !confirm("Discard unsaved changes?")) return;
+async function restoreDeploy(d) {
+  if (!(await confirmDiscard(`Deploy #${d.id} replaces them.`))) return;
   const cfg = d.config_id ? state.configs.find((c) => c.id === d.config_id) : null;
   loadIntoEditor(cfg ? cfg.id : null, cfg ? cfg.name : "", cfg ? cfg.content : "");
   if (!cfg) $("config-name").value = d.config_name || "";

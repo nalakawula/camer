@@ -72,7 +72,7 @@ P2 quality and accessibility · P3 polish
 | CAM-33 | P2 | Vendor or replace the Tailwind CDN build | [x] |
 | CAM-34 | P1 | Compare tab serves a stale result after the Caddyfile changes | [x] |
 | CAM-35 | P1 | Warn before an apply that moves or disables the admin API | [x] |
-| CAM-36 | P3 | Route the discard-unsaved prompts through askDialog | [ ] |
+| CAM-36 | P3 | Route the discard-unsaved prompts through askDialog | [x] |
 
 ---
 
@@ -1161,10 +1161,23 @@ the "reverts to the default 2019" case could be reached — driving the real UI 
 every confirmation:
 
 | endpoint | Caddyfile | result |
-|---
+|----------|-----------|--------|
+| `:2020` | no admin block | warns: moves to `localhost:2019`, names the implicit fallback |
+| `:2020` | `admin localhost:2020` | silent |
+| `:2020` | `admin off` | warns: API disabled entirely |
+| `:2020` | `admin localhost:2021` | warns: moves to `:2021` |
+| `127.0.0.1:2020` | `admin localhost:2020` | silent (loopback alias) |
+| `127.0.0.1:2020` | `admin :2020` | silent (wildcard bind) |
+| `127.0.0.1:2020` | `admin 10.1.2.3:2020` | warns: genuine move |
+
+The re-apply path was checked with a discriminating case rather than a repeat: the **editor**
+held `admin off` while deploy #1 held a safe config, and re-applying #1 stayed silent —
+proving the check reads the deploy's content, not whatever the editor happens to show.
+
+---
 
 ### CAM-36 — Route the discard-unsaved prompts through askDialog
-`[ ]` · P3 · Depends on: CAM-11 · Files: `web/app.js`
+`[x]` · P3 · Depends on: CAM-11 · Files: `web/app.js`
 
 **Problem.** Three paths still call the native `confirm("Discard unsaved changes?")` —
 `selectConfig` (`app.js:731`), `newConfig` (`app.js:743`) and `restoreDeploy`
@@ -1183,6 +1196,22 @@ or match the rest of the app — and it blocks the JS thread while open.
 - Escape and the backdrop both cancel, inherited from the dialog helper rather than
   reimplemented.
 - No `confirm(` remains in `web/app.js` — a grep is the gate.
+
+**Result.** One `confirmDiscard(replacement)` helper wraps `askDialog` and absorbs the
+`isDirty()` check, so the three sites read as a single guard clause. It names the draft whose
+changes are at risk and what replaces them: *"Production proxy" has changes that have not been
+saved. / A new, empty Caddyfile replaces them. The unsaved version is not kept anywhere.* —
+where the second sentence is "Opening “Alpha” replaces them." from the sidebar and "Deploy #1
+replaces them." from the history.
+
+`newConfig` and `restoreDeploy` became `async` to await it; both are only reached from click
+handlers, so nothing else had to change. Cancel is the focused default (it is the first
+non-danger action, which `askDialog` already focuses), and Escape and the backdrop cancel
+through the CAM-04 dialog stack rather than any new handling.
+
+Verified in a browser for all three paths: the prompt names the right draft and the right
+replacement in each; Escape, Cancel and the backdrop all leave the edit untouched; Discard
+replaces it. `grep -c 'confirm("' web/app.js` is 0.
 
 ---
 
